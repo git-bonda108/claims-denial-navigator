@@ -59,7 +59,7 @@ Without these settings, the app runs in **offline mode**. It uses deterministic 
 
 ## Deploy to Azure (`azd`)
 
-Prerequisites: [Azure Developer CLI](https://aka.ms/azd), Docker, and a subscription with Azure OpenAI quota for `gpt-4.1-mini` (GlobalStandard) in your region.
+Prerequisites: [Azure Developer CLI](https://aka.ms/azd) and a subscription with Azure OpenAI quota for `gpt-4.1-mini` (GlobalStandard) in your region.
 
 ```bash
 cd poc
@@ -67,7 +67,7 @@ azd auth login                 # sign in with the account that owns the subscrip
 azd env new denial-nav-demo
 azd env set AZURE_LOCATION eastus2
 azd env set TEAMS_WEBHOOK_URL "<optional>"
-azd up                         # provisions infra/ and deploys the container (~10 min)
+azd up                         # provisions infra/, builds the image in Azure and deploys (~10 min)
 ```
 
 This creates a resource group with Container Apps (1 replica), Container Registry, Azure OpenAI with a model deployment (API keys disabled), a user-assigned managed identity with *Cognitive Services OpenAI User* and *AcrPull* roles, and Log Analytics. No secrets are stored in the app. To restrict access to your tenant, enable built-in authentication (Microsoft Entra ID) on the Container App.
