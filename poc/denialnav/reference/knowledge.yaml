@@ -1,0 +1,177 @@
+# Demo knowledge library. Cards K01-K09, K15 and K16 summarise public CMS / X12 guidance
+# (summaries only - verify against the cited source before relying on them).
+# Cards K10-K14, K18 and K19 are FICTIONAL policies written for the synthetic world.
+- id: K01
+  title: Medicare timely filing limit
+  source: CMS IOM 100-04 Medicare Claims Processing Manual, Ch. 1, Sec. 70; 42 CFR 424.44
+  tags: {carc: ["29"], payer_type: [MEDICARE]}
+  text: >-
+    Medicare fee-for-service claims must be filed no later than 12 months (one calendar year)
+    after the date of service. Claims received after the limit are denied with CARC 29.
+    Limited exceptions exist (for example administrative error by Medicare or retroactive
+    entitlement). Proof that the claim was originally submitted on time, such as a
+    clearinghouse acceptance report, supports an appeal.
+- id: K02
+  title: Unprocessable claims (return as unprocessable)
+  source: CMS IOM 100-04 Medicare Claims Processing Manual, Ch. 1, Sec. 80.3
+  tags: {carc: ["16"], rarc: ["MA130"], payer_type: [MEDICARE]}
+  text: >-
+    A claim with incomplete or invalid required information is returned as unprocessable
+    (CARC 16 with RARC MA130). No appeal rights are afforded. The provider must correct the
+    missing or invalid data element identified by the accompanying remark code (for example
+    N290 rendering provider identifier) and submit a new claim within the timely filing limit.
+- id: K03
+  title: Medicare redetermination (first level appeal)
+  source: CMS IOM 100-04 Ch. 29, Sec. 310; 42 CFR 405.942
+  tags: {payer_type: [MEDICARE], action: [APPEAL_REDETERMINATION]}
+  text: >-
+    A request for redetermination must be filed within 120 days of receipt of the initial
+    determination. The notice is presumed received 5 days after the date on the notice unless
+    there is evidence otherwise. Include the claim details, the reason for disagreement and
+    supporting documentation such as medical records or proof of timely filing.
+- id: K04
+  title: Reopening for clerical errors
+  source: CMS IOM 100-04 Ch. 34; 42 CFR 405.980
+  tags: {payer_type: [MEDICARE], action: [REOPENING, CORRECT_AND_RESUBMIT]}
+  text: >-
+    Minor errors or omissions on a processed claim (for example an incorrect code or modifier)
+    may be corrected through a reopening rather than an appeal. A reopening for a clerical error
+    may be requested within one year of the date of the initial determination. Follow your
+    Medicare Administrative Contractor's reopening process.
+- id: K05
+  title: Advance Beneficiary Notice (ABN) and GA / GZ modifiers
+  source: CMS IOM 100-04 Ch. 30, Sec. 50
+  tags: {carc: ["50", "167"], rarc: ["N115", "N386"], payer_type: [MEDICARE]}
+  text: >-
+    When a provider expects Medicare to deny an item as not reasonable and necessary, a valid
+    ABN signed before the service transfers financial liability to the beneficiary. Modifier GA
+    indicates a valid ABN is on file; the denial is reported as patient responsibility and the
+    patient may be billed. Modifier GZ indicates no ABN was obtained; the provider is liable and
+    may not bill the beneficiary.
+- id: K06
+  title: Medicare Secondary Payer (MSP)
+  source: CMS IOM 100-05 Medicare Secondary Payer Manual
+  tags: {carc: ["22"], rarc: ["MA04"], payer_type: [MEDICARE]}
+  text: >-
+    When another plan (such as an employer group health plan) is primary to Medicare, the claim
+    must be billed to the primary payer first. Medicare is then billed as secondary with the
+    primary payer's payment information. Update the patient's MSP questionnaire and coverage order.
+- id: K07
+  title: NCCI procedure-to-procedure edits and modifier indicators
+  source: CMS National Correct Coding Initiative Policy Manual, Ch. 1
+  tags: {carc: ["97"], rarc: ["M15", "M80"]}
+  text: >-
+    NCCI PTP edits define code pairs that should not normally be reported together. A modifier
+    indicator of 0 means the edit cannot be bypassed with a modifier. An indicator of 1 means an
+    NCCI-associated modifier (such as 59 or XS for a separate anatomic site) may be used only when
+    the documentation supports a distinct and independent service.
+- id: K08
+  title: Medically Unlikely Edits (MUE)
+  source: CMS NCCI Medically Unlikely Edits
+  tags: {carc: ["151"]}
+  text: >-
+    MUEs set the maximum units of service a provider would report for a code for a single
+    beneficiary on a single date of service. Unit-of-service errors (for example a keying error)
+    should be corrected and the claim resubmitted.
+- id: K09
+  title: Claim adjustment group codes
+  source: X12 835 Health Care Claim Payment/Advice; CAQH CORE operating rules
+  tags: {}
+  text: >-
+    CO (contractual obligation) - the provider is financially liable and may not bill the patient.
+    PR (patient responsibility) - the amount may be billed to the patient or a secondary payer.
+    OA (other adjustment) - neither CO nor PR applies, for example a duplicate or prior payer
+    impact. PI (payer initiated reduction). CARC 45 under CO is a routine contractual adjustment,
+    not a denial.
+- id: K10
+  title: Transthoracic Echocardiography - covered indications (demo LCD DEMO-L001)
+  source: FICTIONAL demo coverage policy DEMO-L001
+  tags: {carc: ["50"], rarc: ["N115"], code: ["93306"]}
+  text: >-
+    Section 3 - ICD-10 codes that support medical necessity for 93306: R06.02 shortness of breath,
+    I50.9 heart failure, R01.1 cardiac murmur, I48.91 atrial fibrillation, R07.9 chest pain.
+    Section 4 - Not reasonable and necessary: routine screening or uncomplicated hypertension
+    (I10) as the only indication, general examination (Z00.00).
+- id: K11
+  title: Vitamin D assay - covered indications (demo LCD DEMO-L002)
+  source: FICTIONAL demo coverage policy DEMO-L002
+  tags: {carc: ["50"], rarc: ["N115"], code: ["82306"]}
+  text: >-
+    Section 3 - Vitamin D testing (82306) is covered for E55.9 vitamin D deficiency and M81.0
+    osteoporosis. Section 4 - Screening during a general examination (Z00.00) is not covered;
+    an ABN should be obtained before the service.
+- id: K12
+  title: Plains Health prior authorization and appeals policy
+  source: FICTIONAL Plains Health Provider Manual
+  tags: {carc: ["197", "11", "27", "119"], payer: [PLH]}
+  text: >-
+    Section 4.2 - Advanced imaging (CT/MRI) requires prior authorization before the date of
+    service. Report the authorization number on the claim (REF*G1). Section 4.5 - Retroactive
+    authorization may be requested within 30 days of the denial date with clinical notes.
+    Section 7.1 - Level 1 appeals must be received within 180 days of the denial date.
+    Timely filing is 180 days from the date of service.
+- id: K13
+  title: Summit Mutual provider policy
+  source: FICTIONAL Summit Mutual Provider Manual
+  tags: {carc: ["197", "18", "27"], payer: [SMM]}
+  text: >-
+    Section 3.1 - Prior authorization is required for advanced imaging. Retroactive
+    authorization is not accepted. Section 6.2 - Appeals must be filed within 60 days of the
+    denial date. Timely filing is 90 days from the date of service.
+- id: K14
+  title: Prairie State Medicaid billing manual
+  source: FICTIONAL Prairie State Medicaid Provider Manual
+  tags: {carc: ["16"], rarc: ["N255"], payer: [MCD]}
+  text: >-
+    Section 2.4 - The billing provider taxonomy reported in loop 2000A PRV must match the
+    taxonomy on the provider's Medicaid enrollment record. Section 5.1 - Claims must be filed
+    within 180 days of the date of service. Corrected claims are submitted as replacements.
+    Section 9.3 - Appeals must be filed within 90 days of the remittance date.
+- id: K15
+  title: Duplicate claims and repeat procedures
+  source: Repeat-procedure modifier guidance (76/77); X12 CARC 18
+  tags: {carc: ["18"], rarc: ["N522"]}
+  text: >-
+    CARC 18 identifies an exact duplicate claim or service. If the original was paid, no action
+    is needed. If the service was genuinely repeated on the same day, report modifier 76 (same
+    physician) or 77 (different physician) with documentation and resubmit.
+- id: K16
+  title: Outpatient therapy modifiers GP / GO / GN
+  source: CMS IOM 100-04 Ch. 5, Sec. 20.1
+  tags: {carc: ["4"], code: ["97110", "97140", "97530"]}
+  text: >-
+    Outpatient therapy services must carry the modifier that matches the plan of care:
+    GP physical therapy, GO occupational therapy, GN speech-language pathology. A mismatched
+    modifier is corrected and the claim resubmitted.
+- id: K17
+  title: Provider enrollment and eligibility to bill
+  source: CMS IOM 100-08 Program Integrity Manual, Ch. 10
+  tags: {carc: ["B7"]}
+  text: >-
+    Services are payable only when the rendering provider is enrolled and eligible on the date
+    of service. Denials with CARC B7 are resolved by correcting the enrollment record (including
+    the effective date) with the payer's credentialing department, then resubmitting.
+- id: K18
+  title: Heartland Advantage provider manual
+  source: FICTIONAL Heartland Advantage (Medicare Advantage) Provider Manual
+  tags: {carc: ["B7", "197"], payer: [MAP]}
+  text: >-
+    Section 2.2 - Rendering providers must be credentialed with Heartland Advantage before the
+    date of service. Section 8.1 - Payment disputes and reconsiderations must be filed within
+    60 days of the remittance date.
+- id: K19
+  title: Prairie Ridge SOP - eligibility re-verification
+  source: FICTIONAL Prairie Ridge Community Hospital Patient Access SOP PA-07
+  tags: {carc: ["27", "22"]}
+  text: >-
+    When a payer reports terminated coverage, run a 270/271 eligibility inquiry across all
+    known payers, update the patient's coverage and rebill the correct payer. If no coverage is
+    found, bill the patient and refer to financial counselling for assistance screening.
+- id: K20
+  title: Benefit maximum reached
+  source: X12 CARC 119; payer benefit plan documents
+  tags: {carc: ["119"]}
+  text: >-
+    CARC 119 indicates the plan's visit or dollar maximum has been reached. Verify the visit count
+    against the plan benefit. When reported as patient responsibility (PR) and the count is
+    correct, the balance may be billed to the patient.

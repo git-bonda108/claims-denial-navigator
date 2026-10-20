@@ -1,0 +1,60 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "0.1.0",
+  "id": "02b6516a-da44-52db-aa1a-6690531aed0a",
+  "developer": {
+    "name": "Alif Consulting",
+    "websiteUrl": "https://www.alifconsulting.com",
+    "privacyUrl": "https://www.alifconsulting.com",
+    "termsOfUseUrl": "https://www.alifconsulting.com"
+  },
+  "name": {
+    "short": "Denial Navigator",
+    "full": "Denial Navigator (POC)"
+  },
+  "description": {
+    "short": "Turn denied claims into the right next action.",
+    "full": "Denial Navigator ranks denied claims by recoverable dollars and deadline, explains each denial with policy citations, drafts appeals and alerts the right team. Proof of concept on synthetic data."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#0E9AA7",
+  "staticTabs": [
+    {
+      "entityId": "worklist",
+      "name": "Worklist",
+      "contentUrl": "{{APP_URL}}/#worklist",
+      "websiteUrl": "{{APP_URL}}/#worklist",
+      "scopes": [
+        "personal"
+      ]
+    },
+    {
+      "entityId": "assistant",
+      "name": "Assistant",
+      "contentUrl": "{{APP_URL}}/#assistant",
+      "websiteUrl": "{{APP_URL}}/#assistant",
+      "scopes": [
+        "personal"
+      ]
+    },
+    {
+      "entityId": "dashboard",
+      "name": "Dashboard",
+      "contentUrl": "{{APP_URL}}/#dashboard",
+      "websiteUrl": "{{APP_URL}}/#dashboard",
+      "scopes": [
+        "personal"
+      ]
+    }
+  ],
+  "permissions": [
+    "identity"
+  ],
+  "validDomains": [
+    "{{APP_HOST}}"
+  ]
+}

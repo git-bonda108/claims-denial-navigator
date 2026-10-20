@@ -1,0 +1,23 @@
+code,description,charge,allowed,category
+99213,Office visit established patient (low complexity),165.00,92.00,EM
+99214,Office visit established patient (moderate complexity),240.00,130.00,EM
+99284,Emergency department visit (moderate-high severity),1150.00,260.00,EM
+G0439,Annual wellness visit (subsequent),220.00,130.00,PREVENTIVE
+36415,Routine venipuncture,25.00,3.00,LAB
+80053,Comprehensive metabolic panel,95.00,11.00,LAB
+85025,Complete blood count with differential,60.00,8.00,LAB
+82306,Vitamin D 25-hydroxy assay,180.00,29.00,LAB
+93000,Electrocardiogram complete,140.00,17.00,CARDIO
+93306,Transthoracic echocardiogram complete with Doppler,1800.00,220.00,CARDIO
+93325,Doppler color flow add-on,350.00,0.00,CARDIO
+71046,Chest x-ray 2 views,280.00,40.00,IMAGING
+74177,CT abdomen and pelvis with contrast,2840.00,380.00,IMAGING
+70450,CT head without contrast,1650.00,110.00,IMAGING
+73721,MRI knee without contrast,2150.00,225.00,IMAGING
+72148,MRI lumbar spine without contrast,2450.00,230.00,IMAGING
+77067,Screening mammography bilateral,420.00,130.00,IMAGING
+97110,Therapeutic exercise each 15 minutes,115.00,30.00,THERAPY
+97140,Manual therapy each 15 minutes,110.00,28.00,THERAPY
+97530,Therapeutic activities each 15 minutes,125.00,36.00,THERAPY
+20610,Arthrocentesis/injection major joint,380.00,65.00,PROCEDURE
+J1030,Methylprednisolone acetate 40 mg injection,45.00,5.00,DRUG

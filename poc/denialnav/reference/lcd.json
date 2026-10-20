@@ -1,0 +1,19 @@
+{
+  "_note": "Demo coverage policies modeled on the structure of CMS Local Coverage Determinations. Fictional IDs - replace with the Medicare Coverage Database download in production.",
+  "policies": [
+    {
+      "id": "DEMO-L001",
+      "title": "Transthoracic Echocardiography (demo LCD)",
+      "codes": ["93306"],
+      "covered_dx": ["R06.02", "I50.9", "R01.1", "I48.91", "R07.9"],
+      "knowledge_id": "K10"
+    },
+    {
+      "id": "DEMO-L002",
+      "title": "Vitamin D Assay Testing (demo LCD)",
+      "codes": ["82306"],
+      "covered_dx": ["E55.9", "M81.0"],
+      "knowledge_id": "K11"
+    }
+  ]
+}

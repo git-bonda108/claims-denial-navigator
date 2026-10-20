@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Denial Navigator</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <aside class="side">
+    <div class="brand">
+      <div class="logo">DN</div>
+      <div><div class="brand-name">Denial Navigator</div><div class="brand-sub">Prairie Ridge Community Hospital</div></div>
+    </div>
+    <nav>
+      <a href="#dashboard" data-view="dashboard">Dashboard</a>
+      <a href="#worklist" data-view="worklist">Worklist</a>
+      <a href="#assistant" data-view="assistant">Assistant</a>
+      <a href="#inbox" data-view="inbox">Remittance inbox</a>
+      <a href="#proof" data-view="proof">Proof &amp; quality</a>
+    </nav>
+    <div class="side-foot">
+      <div id="mode-pill" class="pill"></div>
+      <div class="muted small" id="asof"></div>
+      <div class="muted small">Synthetic data only · no PHI</div>
+    </div>
+  </aside>
+
+  <main>
+    <section id="view-dashboard" class="view"></section>
+    <section id="view-worklist" class="view"></section>
+    <section id="view-assistant" class="view"></section>
+    <section id="view-inbox" class="view"></section>
+    <section id="view-proof" class="view"></section>
+  </main>
+
+  <div id="drawer" class="drawer" aria-hidden="true">
+    <div class="drawer-panel" role="dialog" aria-modal="true">
+      <button class="close" id="drawer-close" aria-label="Close">×</button>
+      <div id="drawer-body"></div>
+    </div>
+  </div>
+
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="modal-panel" role="dialog" aria-modal="true">
+      <button class="close" id="modal-close" aria-label="Close">×</button>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

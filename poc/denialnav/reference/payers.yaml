@@ -1,0 +1,43 @@
+# Fictional payers for the demo. Medicare rules reflect public CMS rules; all other
+# windows are demo configuration and must be replaced with real contract terms.
+MCR:
+  name: Medicare Part B (Demo MAC)
+  type: MEDICARE
+  filing_indicator: MB
+  timely_filing_days_from_dos: 365
+  appeal: {kind: REDETERMINATION, days: 120, receipt_presumption_days: 5}
+  reopening_days: 365
+  retro_auth_days_from_denial: 0
+  knowledge: [K01, K03, K04]
+MCD:
+  name: Prairie State Medicaid (Demo)
+  type: MEDICAID
+  filing_indicator: MC
+  timely_filing_days_from_dos: 180
+  appeal: {kind: LEVEL_1, days: 90, receipt_presumption_days: 0}
+  retro_auth_days_from_denial: 0
+  knowledge: [K14]
+MAP:
+  name: Heartland Advantage (Demo MA plan)
+  type: MEDICARE_ADVANTAGE
+  filing_indicator: "16"
+  timely_filing_days_from_dos: 365
+  appeal: {kind: LEVEL_1, days: 60, receipt_presumption_days: 0}
+  retro_auth_days_from_denial: 0
+  knowledge: [K18]
+PLH:
+  name: Plains Health (Demo commercial)
+  type: COMMERCIAL
+  filing_indicator: CI
+  timely_filing_days_from_dos: 180
+  appeal: {kind: LEVEL_1, days: 180, receipt_presumption_days: 0}
+  retro_auth_days_from_denial: 30
+  knowledge: [K12]
+SMM:
+  name: Summit Mutual (Demo commercial)
+  type: COMMERCIAL
+  filing_indicator: CI
+  timely_filing_days_from_dos: 90
+  appeal: {kind: LEVEL_1, days: 60, receipt_presumption_days: 0}
+  retro_auth_days_from_denial: 0
+  knowledge: [K13]

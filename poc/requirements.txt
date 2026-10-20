@@ -1,0 +1,9 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+PyYAML>=6.0
+numpy>=1.26
+scikit-learn>=1.5
+openai>=1.50
+azure-identity>=1.17
+python-multipart>=0.0.9

@@ -1,6 +1,7 @@
 # Claims Denial Navigator: POC Plan
 
 **Status:** draft for internal review before the partner meeting · **Owner:** Alif Consulting
+**Build status:** a working vertical slice of Batches 1–5 is in [`poc/`](../poc/README.md); see its "What is real and what is simulated" table.
 **Scope:** a working demo on realistic synthetic data. No real PHI goes into the POC.
 
 ---
@@ -187,7 +188,7 @@ Every workable denial produces one record (schema in `poc/agent/decision.schema.
 }
 ```
 
-**Closed action set:** `CORRECT_AND_RESUBMIT`, `SUBMIT_NEW_CLAIM`, `REOPENING`, `APPEAL_REDETERMINATION` (or the commercial equivalent `APPEAL_LEVEL_1`), `OBTAIN_RETRO_AUTH`, `BILL_PRIMARY_THEN_SECONDARY`, `BILL_SECONDARY`, `BILL_PATIENT`, `ROUTE_CREDENTIALING`, `WRITE_OFF`, `NO_ACTION`.
+**Closed action set:** `CORRECT_AND_RESUBMIT`, `SUBMIT_NEW_CLAIM`, `REOPENING`, `APPEAL_REDETERMINATION` (or the commercial equivalent `APPEAL_LEVEL_1`), `OBTAIN_RETRO_AUTH`, `BILL_OTHER_PAYER` (COB primary or newly found coverage), `BILL_PATIENT`, `ROUTE_CREDENTIALING`, `WRITE_OFF`, `NO_ACTION`, `MANUAL_REVIEW`.
 
 ---
 
