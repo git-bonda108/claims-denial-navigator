@@ -13,9 +13,9 @@
   --line: #e4e7eb;
   --bg: #f5f7fa;
   --card: #ffffff;
-  --font: "Anthropic Sans Text", "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --display: "Anthropic Serif Display", "Anthropic Serif Web", Georgia, serif;
-  --mono: "Anthropic Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font: "Anthropic Sans Text", "Anthropic Sans Web", "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: "Anthropic Serif Display", "Anthropic Serif Web", "Montserrat", Georgia, serif;
+  --mono: "Anthropic Mono", "Anthropic Mono Web", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }

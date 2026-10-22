@@ -19,6 +19,7 @@ from openpyxl import Workbook
 from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+FONT = "DM Sans"  # Alif deck fonts: Anthropic Sans on the presenter Mac, DM Sans for everyone else
 NAVY, BLUE, TEAL, GREEN, CORAL, AMBER, LIGHT = "0B1F3A", "1F4E8C", "00A3C4", "2E9E6A", "E4572E", "F2A541", "F3F4F6"
 
 
@@ -176,19 +177,19 @@ def write_workbook(path: str, rows: list[dict], meta: dict) -> None:
     wb = Workbook()
     thin = Side(style="thin", color="E0E3E7")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    base = Font(name="Arial", size=10)
-    head = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+    base = Font(name=FONT, size=10)
+    head = Font(name=FONT, size=10, bold=True, color="FFFFFF")
     wrap = Alignment(wrap_text=True, vertical="top")
 
     ws = wb.active
     ws.title = "Test Cases"
     ws["A1"] = "Denial Navigator · Business test cases"
-    ws["A1"].font = Font(name="Arial", size=14, bold=True, color=NAVY)
+    ws["A1"].font = Font(name=FONT, size=14, bold=True, color=NAVY)
     ws["A2"] = (f"Environment: {meta['url']}  ·  AI: {meta['mode']}  ·  Run: {meta['run_at']} UTC  ·  "
                 "All data synthetic (no patient data)")
-    ws["A2"].font = Font(name="Arial", size=9, color="52606D")
+    ws["A2"].font = Font(name=FONT, size=9, color="52606D")
     ws["A3"] = "Fill in: Tester and Notes (yellow columns). Everything else is written by the test run."
-    ws["A3"].font = Font(name="Arial", size=9, italic=True, color="52606D")
+    ws["A3"].font = Font(name=FONT, size=9, italic=True, color="52606D")
     headers = ["ID", "Test", "Business question", "How to test (in the web app)", "Expected result",
                "Actual result (captured)", "Status", "Response time (s)", "Tester", "Notes"]
     widths = [8, 26, 34, 44, 52, 70, 10, 12, 14, 26]
@@ -204,15 +205,15 @@ def write_workbook(path: str, rows: list[dict], meta: dict) -> None:
             c.font, c.alignment, c.border = base, wrap, border
             if i in (9, 10):
                 c.fill = PatternFill("solid", fgColor="FFF6DB")
-        ws.cell(row=r, column=1).font = Font(name="Arial", size=10, bold=True, color=BLUE)
+        ws.cell(row=r, column=1).font = Font(name=FONT, size=10, bold=True, color=BLUE)
         ws.cell(row=r, column=7).alignment = Alignment(horizontal="center", vertical="top")
         ws.row_dimensions[r].height = 150
     last = 5 + len(rows)
     rng = f"G6:G{last}"
     ws.conditional_formatting.add(rng, CellIsRule(operator="equal", formula=['"PASS"'], fill=PatternFill("solid", fgColor="E3F3EA"),
-                                                  font=Font(name="Arial", bold=True, color="1E7A50")))
+                                                  font=Font(name=FONT, bold=True, color="1E7A50")))
     ws.conditional_formatting.add(rng, CellIsRule(operator="equal", formula=['"FAIL"'], fill=PatternFill("solid", fgColor="FCE4DD"),
-                                                  font=Font(name="Arial", bold=True, color=CORAL)))
+                                                  font=Font(name=FONT, bold=True, color=CORAL)))
     ws.freeze_panes = "C6"
     ws.page_setup.orientation = "landscape"
     ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0
@@ -221,7 +222,7 @@ def write_workbook(path: str, rows: list[dict], meta: dict) -> None:
 
     sm = wb.create_sheet("Summary")
     sm["A1"] = "Test run summary"
-    sm["A1"].font = Font(name="Arial", size=14, bold=True, color=NAVY)
+    sm["A1"].font = Font(name=FONT, size=14, bold=True, color=NAVY)
     lines = [("Test cases", f"=COUNTA('Test Cases'!A6:A{last})"),
              ("Passed", f"=COUNTIF('Test Cases'!G6:G{last},\"PASS\")"),
              ("Failed", f"=COUNTIF('Test Cases'!G6:G{last},\"FAIL\")"),
@@ -229,7 +230,7 @@ def write_workbook(path: str, rows: list[dict], meta: dict) -> None:
              ("Average response time (s)", f"=AVERAGE('Test Cases'!H6:H{last})"),
              ("AI mode", meta["mode"]), ("Environment", meta["url"]), ("Run at (UTC)", meta["run_at"])]
     for i, (k, v) in enumerate(lines, 3):
-        sm.cell(row=i, column=1, value=k).font = Font(name="Arial", size=10, bold=True)
+        sm.cell(row=i, column=1, value=k).font = Font(name=FONT, size=10, bold=True)
         c = sm.cell(row=i, column=2, value=v)
         c.font = base
     sm["B6"].number_format = "0%"
@@ -253,7 +254,7 @@ def write_workbook(path: str, rows: list[dict], meta: dict) -> None:
     ]
     for i, t in enumerate(steps, 1):
         c = how.cell(row=i, column=1, value=t)
-        c.font = Font(name="Arial", size=12 if i == 1 else 10, bold=i == 1, color=NAVY if i == 1 else "1F2933")
+        c.font = Font(name=FONT, size=12 if i == 1 else 10, bold=i == 1, color=NAVY if i == 1 else "1F2933")
     how.column_dimensions["A"].width = 120
     wb.save(path)
 
