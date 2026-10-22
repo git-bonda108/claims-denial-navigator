@@ -145,6 +145,10 @@ def create_app(service: Service | None = None) -> FastAPI:
         def index():
             return FileResponse(WEB / "index.html")
 
+        @app.get("/explainer")
+        def explainer():
+            return FileResponse(WEB / "explainer.html")
+
     return app
 
 
