@@ -13,7 +13,7 @@ Do not use these words anywhere: model, models, ML, machine learning, fine-tuned
 - "Machine learning" / "ML" → "Prioritisation"
 - "ML scores recovery and urgency" → "Prioritisation scores recovery and urgency"
 - "Rules + ML + grounded AI" → "Rules + prioritisation + grounded AI"
-- "Fine-tuned model only" (slide 17 column) → "Custom-trained AI only"
+- "Fine-tuned model only" (slide 17 column) → "Custom-built AI only"
 - "AI model usage" (slide 22 cost row) → "AI usage"
 - "No patient data used for model training" → "Your data never trains public AI"
 - Ranking described as "learns from your own outcomes, inside your tenant"
