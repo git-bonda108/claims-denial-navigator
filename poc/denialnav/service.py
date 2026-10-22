@@ -248,16 +248,18 @@ class Service:
             if not d:
                 missing += 1
                 continue
-            ok = d["action"] in lb["acceptable"] and d["workable"] == lb["workable"]
+            # score what the system decided; a person's later override is feedback, not a system error
+            action = (d.get("history") or [{}])[0].get("from", d["action"])
+            ok = action in lb["acceptable"] and d["workable"] == lb["workable"]
             bucket = "noise" if not lb["workable"] else ("manual" if lb["action"] == "MANUAL_REVIEW" else "denial")
             res[bucket]["n"] += 1
             res[bucket]["correct"] += ok
             res["scenario:" + lb["scenario"]]["n"] += 1
             res["scenario:" + lb["scenario"]]["correct"] += ok
-            if d["action"] in lb["must_not"]:
-                violations.append({"claim_id": lb["claim_id"], "scenario": lb["scenario"], "action": d["action"]})
+            if action in lb["must_not"]:
+                violations.append({"claim_id": lb["claim_id"], "scenario": lb["scenario"], "action": action})
             if not ok:
-                details.append({"claim_id": lb["claim_id"], "scenario": lb["scenario"], "expected": lb["action"], "got": d["action"]})
+                details.append({"claim_id": lb["claim_id"], "scenario": lb["scenario"], "expected": lb["action"], "got": action})
         acc = {k: round(v["correct"] / v["n"], 4) for k, v in res.items() if v["n"]}
         deadlines = [d for d in decided.values() if d["workable"] and d.get("deadline")]
         return {"labels": len(labels), "scored": len(labels) - missing, "not_yet_ingested": missing,

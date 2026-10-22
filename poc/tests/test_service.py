@@ -50,6 +50,8 @@ def test_override_becomes_precedent(svc):
     d = svc.store.decision(item["id"])
     assert d["action"] == "WRITE_OFF" and d["decided_by"] == "HUMAN" and d["status"] == "DONE"
     assert svc.feedback(item["id"], "OVERRIDE", "NOT_AN_ACTION", "", "x").get("error")
+    # the evaluation scores the system's decision, not the human override
+    assert svc.evaluate()["must_not_violations"] == []
 
 
 def test_chat_router_offline(svc):
