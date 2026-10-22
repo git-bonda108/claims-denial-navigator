@@ -149,6 +149,14 @@ def create_app(service: Service | None = None) -> FastAPI:
         def explainer():
             return FileResponse(WEB / "explainer.html")
 
+        @app.get("/explainer.gif")
+        def explainer_gif():
+            return FileResponse(WEB / "media" / "Denial_Navigator_Explainer.gif", media_type="image/gif")
+
+        @app.get("/explainer.mp4")
+        def explainer_mp4():
+            return FileResponse(WEB / "media" / "Denial_Navigator_Explainer.mp4", media_type="video/mp4")
+
     return app
 
 
