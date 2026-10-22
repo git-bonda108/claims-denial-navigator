@@ -93,3 +93,9 @@ infra/            Bicep for azd
 teams/            Teams app manifest + packager
 tests/            pytest suite
 ```
+
+## Business test cases and explainer video
+
+- `python3 scripts/run_test_cases.py <app url> --out results.xlsx` runs the 5 business test cases (new remittance, prior-auth appeal, medical necessity, unprocessable claim, assistant and guardrails) and writes an Excel log with plain-language steps, expected and actual results, and pass/fail.
+- `python3 scripts/verify_deployment.py <app url>` is the 35-point technical check of every component.
+- `video/Denial_Navigator_Explainer.mp4` (74 s, 1080p) and `.gif`: how a denial flows from Teams through the Azure tenant (rules, prioritisation, Foundry agent and tools, encryption, audit) and back. Open `video/explainer.html` in a browser to play it live; the MP4 is rendered from that page.

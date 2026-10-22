@@ -87,7 +87,7 @@ def check(name: str, passed: bool | None, detail: str) -> dict:
 # ---------------------------------------------------------------- handlers
 
 def h_16(c: Ctx) -> Outcome:
-    defs = {r: c.ref.code_def(r) or r for r in c.rarcs}
+    defs = {r: (c.ref.code_def(r) or r).rstrip(". ") for r in c.rarcs}
     checks, fixes = [], []
     if "N290" in c.rarcs or not c.claim.get("rendering_npi"):
         ok = bool(c.claim.get("rendering_npi"))

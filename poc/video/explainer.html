@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Denial Navigator · How it works</title>
+<style>
+  :root {
+    --navy: #0B1F3A; --blue: #1F4E8C; --teal: #00A3C4; --peri: #5B8DEF;
+    --coral: #E4572E; --amber: #F2A541; --green: #2E9E6A; --ink: #1F2933; --slate: #52606D;
+    --light: #F3F4F6; --line: #E0E3E7; --tealsoft: #E0F5F9; --greensoft: #E3F3EA;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: #0B1F3A; overflow: hidden; }
+  body { display: grid; place-items: center; font-family: Inter, "DM Sans", system-ui, sans-serif; color: var(--ink); }
+  #stage { position: relative; width: 1280px; height: 720px; background: #fff; overflow: hidden; transform-origin: center; }
+  .abs { position: absolute; }
+  .h { font-family: "Inter Display", Inter, sans-serif; }
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+
+  /* step rail */
+  #rail { left: 40px; top: 22px; display: flex; gap: 8px; }
+  .step { display: flex; align-items: center; gap: 7px; padding: 6px 12px 6px 6px; border-radius: 999px; background: var(--light);
+          color: var(--slate); font-size: 13px; font-weight: 600; }
+  .step b { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: #fff; color: var(--slate); font-size: 12px; }
+  .step.on { background: var(--navy); color: #fff; } .step.on b { background: var(--teal); color: #fff; }
+  .step.done { background: var(--tealsoft); color: var(--blue); } .step.done b { background: var(--teal); color: #fff; }
+  #brand { right: 40px; top: 26px; font-size: 13px; font-weight: 700; color: var(--navy); letter-spacing: .3px; }
+  #brand span { color: var(--teal); }
+
+  /* caption */
+  #cap { left: 40px; right: 40px; bottom: 26px; height: 64px; border-radius: 16px; background: var(--navy); color: #fff;
+         display: flex; align-items: center; gap: 16px; padding: 0 22px; }
+  #capnum { width: 34px; height: 34px; border-radius: 50%; background: var(--teal); display: grid; place-items: center; font-weight: 800; flex: none; }
+  #captext { font-size: 21px; font-weight: 600; letter-spacing: -.2px; }
+  #captext em { font-style: normal; color: #7FD8EA; }
+
+  /* front door panel (Teams / Copilot) */
+  #door { left: 40px; top: 84px; width: 370px; height: 516px; border-radius: 18px; background: #fff; border: 1px solid var(--line);
+          box-shadow: 0 10px 30px rgba(11,31,58,.10); overflow: hidden; }
+  #doorbar { height: 46px; background: #464EB8; color: #fff; display: flex; align-items: center; gap: 10px; padding: 0 14px; font-weight: 700; font-size: 14px; }
+  #doorbar .dot { width: 26px; height: 26px; border-radius: 7px; background: #fff; color: #464EB8; display: grid; place-items: center; font-size: 12px; font-weight: 800; }
+  #doortabs { display: flex; gap: 6px; padding: 10px 14px 0; font-size: 12px; font-weight: 600; color: var(--slate); }
+  #doortabs span { padding: 4px 10px; border-radius: 999px; background: var(--light); }
+  #doortabs span.on { background: var(--tealsoft); color: var(--blue); }
+  #doorsub { padding: 8px 14px; font-size: 11px; color: var(--slate); }
+  .bubble { position: absolute; max-width: 300px; padding: 10px 13px; border-radius: 14px; font-size: 14px; line-height: 1.4; }
+  #ask { right: 14px; top: 132px; background: #464EB8; color: #fff; border-bottom-right-radius: 4px; }
+  #thinking { left: 14px; top: 228px; background: var(--light); color: var(--slate); border-bottom-left-radius: 4px; }
+  #reply { left: 14px; top: 212px; width: 340px; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 0; overflow: hidden;
+           box-shadow: 0 6px 18px rgba(11,31,58,.10); }
+  #reply .top { background: var(--navy); color: #fff; padding: 10px 13px; font-size: 13px; font-weight: 700; display: flex; justify-content: space-between; }
+  #reply .top span { color: #7FD8EA; }
+  #reply .body { padding: 10px 13px; font-size: 13px; }
+  .row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+  .row b { color: var(--navy); }
+  .pill { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; }
+  #reply .btns { display: flex; gap: 8px; padding: 10px 13px 13px; }
+  .btn { padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 700; }
+  #approve { background: var(--green); color: #fff; }
+  #openbtn { background: var(--light); color: var(--ink); }
+  #approved { left: 14px; top: 470px; width: 340px; background: var(--greensoft); color: #1E7A50; border-radius: 12px; padding: 10px 13px; font-size: 13px; font-weight: 700; }
+  #cursor { width: 26px; height: 26px; z-index: 30; }
+
+  /* payer file */
+  #payer { left: 140px; top: 470px; display: flex; align-items: center; gap: 10px; }
+  #payer .lbl { font-size: 12px; color: var(--slate); font-weight: 600; }
+
+  /* packet */
+  #packet { left: 0; top: 0; z-index: 20; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; background: #fff;
+            border: 2px solid var(--teal); box-shadow: 0 8px 20px rgba(0,163,196,.25); font-size: 13px; font-weight: 700; color: var(--navy); white-space: nowrap; }
+  #packet.locked { background: var(--navy); color: #fff; border-color: var(--navy); }
+
+  /* tenant */
+  #tenant { left: 440px; top: 84px; width: 800px; height: 516px; border-radius: 22px; border: 2.5px dashed var(--blue); background: rgba(31,78,140,.035); }
+  #tenantlbl { left: 462px; top: 70px; padding: 4px 12px; background: #fff; color: var(--blue); font-weight: 800; font-size: 13px; border-radius: 999px;
+               border: 1.5px solid var(--blue); display: flex; gap: 6px; align-items: center; letter-spacing: .2px; }
+  #gate { left: 412px; top: 300px; width: 58px; height: 58px; border-radius: 50%; background: #fff; border: 3px solid var(--blue); display: grid; place-items: center; z-index: 25; }
+  #gatelbl { left: 300px; top: 368px; width: 280px; text-align: center; font-size: 12px; font-weight: 700; color: var(--blue); z-index: 25; }
+
+  .tile { width: 142px; height: 118px; top: 116px; border-radius: 14px; background: #fff; border: 1.5px solid var(--line); padding: 12px; box-shadow: 0 4px 12px rgba(11,31,58,.06); }
+  .tile .ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; margin-bottom: 8px; }
+  .tile .t { font-size: 13px; font-weight: 800; color: var(--navy); line-height: 1.15; }
+  .tile .s { font-size: 11px; color: var(--slate); margin-top: 3px; line-height: 1.25; }
+  .tile.glow { border-color: var(--teal); box-shadow: 0 0 0 4px rgba(0,163,196,.18), 0 8px 18px rgba(0,163,196,.2); }
+
+  /* work area */
+  #checks { left: 480px; top: 304px; width: 470px; }
+  .chk { display: flex; gap: 12px; align-items: center; padding: 11px 14px; margin-bottom: 9px; border-radius: 12px; background: #fff; border: 1px solid var(--line); font-size: 15px; }
+  .chk .tick { width: 26px; height: 26px; border-radius: 50%; background: var(--green); color: #fff; display: grid; place-items: center; font-weight: 900; font-size: 15px; flex: none; }
+  .chk .k { color: var(--slate); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; display: block; }
+  #verdict { left: 970px; top: 320px; width: 240px; border-radius: 16px; background: var(--navy); color: #fff; padding: 16px; }
+  #verdict .k { font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: #7FD8EA; font-weight: 800; }
+  #verdict .v { font-size: 22px; font-weight: 800; margin: 6px 0; }
+
+  .bub { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 800; z-index: 5; }
+  .rank { left: 520px; width: 560px; height: 40px; border-radius: 10px; display: flex; align-items: center; gap: 12px; padding: 0 14px; font-size: 14px; background: #fff; border: 1px solid var(--line); }
+  .rank .n { width: 26px; font-weight: 900; color: var(--slate); }
+  .rank .sc { margin-left: auto; font-weight: 900; }
+  .rank.top { border: 2px solid var(--coral); background: #FDEDE8; }
+  #learnnote { left: 520px; top: 548px; font-size: 13px; color: var(--blue); font-weight: 700; }
+
+  #agent { left: 790px; top: 380px; width: 120px; height: 120px; border-radius: 50%; background: var(--navy); color: #fff; display: grid; place-items: center;
+           text-align: center; font-size: 12px; font-weight: 800; z-index: 6; }
+  #agent .ring { position: absolute; inset: -10px; border-radius: 50%; border: 3px solid var(--teal); }
+  #wires { left: 440px; top: 84px; width: 800px; height: 516px; z-index: 4; overflow: visible; }
+  .tool { height: 42px; padding: 0 14px; border-radius: 12px; background: #fff; border: 1.5px solid var(--line); display: flex; align-items: center; gap: 8px;
+          font-size: 13px; font-weight: 800; color: var(--navy); z-index: 7; white-space: nowrap; }
+  .tool.on { border-color: var(--teal); background: var(--tealsoft); }
+  .tool.done { border-color: var(--green); background: var(--greensoft); }
+  .res { font-size: 12px; font-weight: 700; color: var(--green); z-index: 7; white-space: nowrap; }
+
+  #loop { left: 520px; top: 270px; width: 300px; height: 300px; }
+  .badge { left: 860px; width: 350px; height: 54px; border-radius: 14px; background: #fff; border: 1.5px solid var(--line); display: flex; align-items: center; gap: 12px;
+           padding: 0 14px; font-size: 15px; font-weight: 700; color: var(--navy); }
+  .badge .ic { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex: none; }
+
+  /* title + end cards */
+  .card { inset: 0; background: var(--navy); color: #fff; z-index: 50; display: flex; flex-direction: column; justify-content: center; padding: 0 90px; }
+  .card .kick { color: #7FD8EA; font-weight: 800; letter-spacing: 2px; font-size: 14px; text-transform: uppercase; }
+  .card h1 { font-family: "Inter Display", Inter, sans-serif; font-size: 72px; font-weight: 800; letter-spacing: -1.5px; margin: 14px 0 10px; }
+  .card p { font-size: 26px; color: #C9D6E6; max-width: 900px; line-height: 1.35; }
+  .card .chips { display: flex; gap: 10px; margin-top: 34px; flex-wrap: wrap; }
+  .card .chips span { padding: 8px 16px; border-radius: 999px; font-weight: 700; font-size: 15px; }
+  .orb { border-radius: 50%; filter: blur(2px); opacity: .9; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <!-- step rail -->
+  <div id="rail" class="abs"></div>
+  <div id="brand" class="abs">DENIAL NAVIGATOR · <span>ALIF CONSULTING</span></div>
+
+  <!-- front door -->
+  <div id="door" class="abs">
+    <div id="doorbar"><div class="dot">DN</div>Denial Navigator <span style="opacity:.75;font-weight:500">· in Microsoft Teams</span></div>
+    <div id="doortabs"><span class="on">Teams / Copilot</span><span>Web app</span></div>
+    <div id="doorsub">Front door built with Copilot Studio · same agent in the web app</div>
+    <div id="ask" class="bubble"></div>
+    <div id="thinking" class="bubble">Checking your claim securely…</div>
+    <div id="reply" class="bubble">
+      <div class="top">Recommended action <span>PRH-10222</span></div>
+      <div class="body">
+        <div class="row"><span>Decision</span><span class="pill" style="background:#C0392B">Appeal · level 1</span></div>
+        <div class="row"><span>Amount</span><b>$2,840</b></div>
+        <div class="row"><span>Why</span><b>Auth AUTH-52611 was on file</b></div>
+        <div class="row"><span>Due</span><b style="color:#B9770E">in 60 days</b></div>
+        <div class="row" style="border:0"><span>Evidence</span><b>Payer policy §4.2 · letter drafted</b></div>
+      </div>
+      <div class="btns"><div id="approve" class="btn">Approve</div><div id="openbtn" class="btn">Open claim</div></div>
+    </div>
+    <div id="approved" class="abs">✓ Approved by Billing lead · appeal sent</div>
+  </div>
+  <div id="payer" class="abs"><svg width="44" height="54" viewBox="0 0 44 54"><path d="M4 2h24l12 12v36a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" fill="#fff" stroke="#1F4E8C" stroke-width="2.5"/><path d="M28 2v12h12" fill="none" stroke="#1F4E8C" stroke-width="2.5"/><rect x="9" y="24" width="24" height="3" rx="1.5" fill="#00A3C4"/><rect x="9" y="31" width="18" height="3" rx="1.5" fill="#9AA5B1"/><rect x="9" y="38" width="22" height="3" rx="1.5" fill="#9AA5B1"/></svg><div><div style="font-weight:800;color:#0B1F3A;font-size:13px">Payer remittance (835)</div><div class="lbl">Summit Mutual · 2 denials</div></div></div>
+
+  <!-- tenant -->
+  <div id="tenant" class="abs"></div>
+  <div id="tenantlbl" class="abs"><svg width="16" height="16" viewBox="0 0 24 24"><path d="M6 19a5 5 0 0 1-.6-9.96A7 7 0 0 1 19 8.5 5.25 5.25 0 0 1 18.5 19z" fill="#1F4E8C"/></svg>YOUR AZURE TENANT · your region</div>
+
+  <div id="t1" class="tile abs" style="left:462px"><div class="ic" style="background:#E3F3EA"><svg width="22" height="22" viewBox="0 0 24 24"><path d="M4 6h10M4 12h10M4 18h10" stroke="#2E9E6A" stroke-width="2.5" stroke-linecap="round"/><path d="m16 11 2 2 4-4" stroke="#2E9E6A" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg></div><div class="t">Rules engine</div><div class="s">Codes, edits, deadlines</div></div>
+  <div id="t2" class="tile abs" style="left:617px"><div class="ic" style="background:#FDEDE8"><svg width="22" height="22" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke="#E4572E" stroke-width="2.5" stroke-linecap="round"/></svg></div><div class="t">Prioritisation</div><div class="s">Learns your own patterns</div></div>
+  <div id="t3" class="tile abs" style="left:772px"><div class="ic" style="background:#E8EEFD"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6" stroke="#5B8DEF" stroke-width="2.5" fill="none"/><path d="m15 15 6 6" stroke="#5B8DEF" stroke-width="2.5" stroke-linecap="round"/></svg></div><div class="t">Azure AI Search</div><div class="s">Your policy library</div></div>
+  <div id="t4" class="tile abs" style="left:927px"><div class="ic" style="background:#E0F5F9"><svg width="22" height="22" viewBox="0 0 24 24"><path d="M12 2l2.2 6.3L20 10l-5.8 1.7L12 18l-2.2-6.3L4 10l5.8-1.7z" fill="#00A3C4"/><circle cx="19" cy="19" r="2.5" fill="#00A3C4"/></svg></div><div class="t">Microsoft Foundry</div><div class="s">AI agent + Azure OpenAI</div></div>
+  <div id="t5" class="tile abs" style="left:1082px"><div class="ic" style="background:#E8EDF4"><svg width="22" height="22" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3" stroke="#1F4E8C" stroke-width="2.2" fill="none"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" stroke="#1F4E8C" stroke-width="2.2" fill="none"/></svg></div><div class="t">Secure data</div><div class="s">Encrypted at rest</div></div>
+
+  <div id="gate" class="abs"><svg width="30" height="30" viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5z" fill="#1F4E8C"/><path d="m8.5 12 2.5 2.5 4.5-5" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg></div>
+  <div id="gatelbl" class="abs">Entra ID sign-in · encrypted in transit</div>
+
+  <!-- packet -->
+  <div id="packet" class="abs"><span id="pkicon"></span><span id="pktext"></span></div>
+
+  <!-- check scene -->
+  <div id="checks" class="abs">
+    <div class="chk" id="c1"><div class="tick">✓</div><div><span class="k">Denial code</span>CO-197 · prior authorisation missing on claim</div></div>
+    <div class="chk" id="c2"><div class="tick">✓</div><div><span class="k">Patient record</span>Authorisation AUTH-52611 found, approved before visit</div></div>
+    <div class="chk" id="c3"><div class="tick">✓</div><div><span class="k">Payer rule</span>Appeal allowed · 60 days from denial</div></div>
+  </div>
+  <div id="verdict" class="abs"><div class="k">Rules decide</div><div class="v">Appeal, don't write off</div><div style="font-size:13px;color:#C9D6E6">Facts come from codes, records and payer rules — not guesses.</div></div>
+
+  <!-- prioritise scene -->
+  <div id="bubs"></div>
+  <div id="ranks"></div>
+  <div id="learnnote" class="abs">↻ Learns from your own resolved claims · never used to train public AI</div>
+
+  <!-- agent scene -->
+  <svg id="wires" class="abs"></svg>
+  <div id="agent" class="abs"><div class="ring" id="ring"></div>AI agent<br><span style="color:#7FD8EA;font-size:11px">Microsoft Foundry</span></div>
+  <div id="tools"></div>
+
+  <!-- respond scene: audit -->
+  <div id="audit" class="abs" style="left:520px;top:290px;width:640px;border-radius:16px;background:#fff;border:1.5px solid #E0E3E7;padding:18px 20px;box-shadow:0 8px 22px rgba(11,31,58,.08)">
+    <div style="font-size:12px;font-weight:800;letter-spacing:.6px;color:#00A3C4;text-transform:uppercase">Audit trail · saved encrypted in your tenant</div>
+    <div class="mono" style="font-size:13px;line-height:1.9;margin-top:8px;color:#1F2933">
+      <div><b style="color:#1F4E8C">14:41:02</b>  Billing lead asked about PRH-10222 (signed in with Entra ID)</div>
+      <div><b style="color:#1F4E8C">14:41:03</b>  Rules: CO-197 · auth on file · 60-day appeal window</div>
+      <div><b style="color:#1F4E8C">14:41:05</b>  Agent tools: claim · authorisation · policy §4.2 · deadline · letter</div>
+      <div><b style="color:#2E9E6A">14:41:31</b>  Appeal approved by Billing lead · letter sent</div>
+    </div>
+  </div>
+
+  <!-- learn scene -->
+  <svg id="loop" class="abs" viewBox="0 0 300 300"></svg>
+  <div id="badges"></div>
+
+  <!-- caption -->
+  <div id="cap" class="abs"><div id="capnum">1</div><div id="captext"></div></div>
+
+  <!-- cursor -->
+  <svg id="cursor" class="abs" viewBox="0 0 24 24"><path d="M4 2l15 9-6.5 1.5L16 20l-3 1.5-3.5-7.5L4 19z" fill="#0B1F3A" stroke="#fff" stroke-width="1.4"/></svg>
+
+  <!-- title + end -->
+  <div id="title" class="card abs">
+    <div class="orb abs" style="width:420px;height:420px;right:-80px;top:-60px;background:radial-gradient(circle,#00A3C4 0%,rgba(0,163,196,0) 70%)"></div>
+    <div class="orb abs" style="width:360px;height:360px;right:220px;bottom:-140px;background:radial-gradient(circle,#5B8DEF 0%,rgba(91,141,239,0) 70%)"></div>
+    <div class="kick">Alif Consulting · How it works</div>
+    <h1>Denial Navigator</h1>
+    <p>Follow one denied claim — from a question in Teams to an approved appeal — in about a minute.</p>
+    <div class="chips"><span style="background:#E4572E">Denied · $2,840</span><span style="background:#F2A541;color:#3d2a00">Deadline · 60 days</span><span style="background:#2E9E6A">Recovered · appeal sent</span></div>
+  </div>
+  <div id="end" class="card abs">
+    <div class="orb abs" style="width:480px;height:480px;left:-120px;bottom:-200px;background:radial-gradient(circle,#00A3C4 0%,rgba(0,163,196,0) 70%)"></div>
+    <div class="kick">Denial Navigator</div>
+    <h1 style="font-size:58px">From denied claim to the right decision, in minutes.</h1>
+    <p>Rules check the facts · prioritisation ranks the dollars · the AI agent explains and drafts · your people approve.</p>
+    <div class="chips"><span style="background:#1F4E8C">Runs in your Azure tenant</span><span style="background:#1F4E8C">Encrypted end to end</span><span style="background:#1F4E8C">Never trains public AI</span><span style="background:#2E9E6A">People approve every action</span></div>
+    <p style="margin-top:40px;font-size:18px;color:#7FD8EA;font-weight:700">Alif Consulting · Live demo available</p>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const ease = (x) => (x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const pr = (t, a, b) => ease(clamp((t - a) / (b - a)));
+const lerp = (a, b, k) => a + (b - a) * k;
+const fade = (t, a, b, d = .5) => clamp(pr(t, a, a + d) * (b == null ? 1 : 1 - pr(t, b, b + d)));
+const set = (el, o, x = 0, y = 0, s = 1) => { el.style.opacity = o; el.style.transform = `translate(${x}px,${y}px) scale(${s})`; el.style.visibility = o < .01 ? "hidden" : "visible"; };
+const T = 74;
+
+const STEPS = ["Ask", "Secure", "Check", "Prioritise", "Decide", "Respond", "Learn"];
+$("rail").innerHTML = STEPS.map((s, i) => `<div class="step" id="st${i}"><b>${i + 1}</b>${s}</div>`).join("");
+
+// scene windows [start, end]
+const S = { title: [0, 5.5], ask: [5.5, 15], secure: [15, 24], check: [24, 33], prio: [33, 42], decide: [42, 55], respond: [55, 65], learn: [65, 70], end: [70, T] };
+const CAPS = [
+  [S.ask[0], 1, "A biller asks in <em>Teams</em> — and the payer's remittance file arrives."],
+  [S.secure[0], 2, "Everything enters <em>your own Azure tenant</em>: signed in with Entra ID, encrypted on the way."],
+  [S.check[0], 3, "The <em>rules engine</em> checks the facts: codes, the patient record, the payer's rules."],
+  [S.prio[0], 4, "<em>Prioritisation</em> ranks every open denial by dollars at stake and days left."],
+  [S.decide[0], 5, "The <em>AI agent</em> in Microsoft Foundry picks the right tools — and shows its evidence."],
+  [S.respond[0], 6, "The answer lands back in <em>Teams</em>. A person approves with one click."],
+  [S.learn[0], 7, "Every approval <em>teaches it your patterns</em> — inside your tenant, never public AI."],
+];
+
+// prioritise bubbles
+const BUB = [["$380", "#F2A541"], ["$95", "#2E9E6A"], ["$2,840", "#E4572E"], ["$1,800", "#F2A541"], ["$240", "#2E9E6A"], ["$110", "#2E9E6A"], ["$2,450", "#E4572E"]];
+$("bubs").innerHTML = BUB.map((b, i) => `<div class="bub abs" id="b${i}" style="background:${b[1]}">${b[0]}</div>`).join("");
+const RANKS = [["PRH-10222", "Prior auth · Summit Mutual", "$2,840", "60 days", 96, "#E4572E"], ["PRH-10079", "Prior auth · Summit Mutual", "$2,450", "21 days", 94, "#E4572E"],
+               ["PRH-10224", "Medical necessity · Medicare", "$1,800", "1 year", 88, "#F2A541"], ["PRH-10223", "Coding fix · Summit Mutual", "$380", "5 days", 81, "#F2A541"]];
+$("ranks").innerHTML = RANKS.map((r, i) => `<div class="rank abs ${i ? "" : "top"}" id="r${i}" style="top:${300 + i * 50}px"><span class="n">${i + 1}</span><b class="mono" style="font-size:13px">${r[0]}</b><span style="color:#52606D">${r[1]}</span><b>${r[2]}</b><span style="color:#52606D">· ${r[3]}</span><span class="sc" style="color:${r[5]}">${r[4]}</span></div>`).join("");
+
+// agent tools (positions in stage coords)
+const TOOLS = [["Look up claim", "Claim + payer found", 520, 300, "#1F4E8C"], ["Check authorisation", "AUTH-52611 on file", 1000, 300, "#2E9E6A"],
+               ["Search payer policy", "Policy §4.2 cited", 500, 520, "#5B8DEF"], ["Compute deadline", "Due in 60 days", 1010, 520, "#F2A541"],
+               ["Draft appeal letter", "Letter ready for review", 760, 552, "#00A3C4"]];
+$("tools").innerHTML = TOOLS.map((t, i) => `<div class="tool abs" id="tl${i}" style="left:${t[2]}px;top:${t[3]}px"><span style="width:10px;height:10px;border-radius:3px;background:${t[4]}"></span>${t[0]}</div><div class="res abs" id="rs${i}" style="left:${t[2] + 6}px;top:${t[3] + 46}px">✓ ${t[1]}</div>`).join("");
+
+// learn badges
+const BADGES = [["Data stays in your Azure tenant", "#E0F5F9", "#00A3C4", "M6 19a5 5 0 0 1-.6-9.96A7 7 0 0 1 19 8.5 5.25 5.25 0 0 1 18.5 19z"],
+                ["Encrypted in transit and at rest", "#E8EDF4", "#1F4E8C", "M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5z"],
+                ["Never used to train public AI", "#FDEDE8", "#E4572E", "M4 4l16 16M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"],
+                ["People approve every action", "#E3F3EA", "#2E9E6A", "m5 12 4 4 10-10"]];
+$("badges").innerHTML = BADGES.map((b, i) => `<div class="badge abs" id="bd${i}" style="top:${282 + i * 66}px"><div class="ic" style="background:${b[1]}"><svg width="18" height="18" viewBox="0 0 24 24"><path d="${b[3]}" stroke="${b[2]}" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>${b[0]}</div>`).join("");
+
+const ASK = "Why was claim PRH-10222 denied, and what should I do?";
+const PLAIN = "PRH-10222 · CO-197 · $2,840";
+const LOCKSVG = '<svg width="16" height="16" viewBox="0 0 24 24"><path d="M7 10V7a5 5 0 0 1 10 0v3" stroke="currentColor" stroke-width="2.4" fill="none"/><rect x="5" y="10" width="14" height="11" rx="2" fill="currentColor"/></svg>';
+const DOCSVG = '<svg width="16" height="16" viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>';
+const CIPH = "a9F3x7Qk2Zp0Lm8Rt4Wv6Yb1Hc5Nd0J";
+const scramble = (s, k, seed) => s.split("").map((c, i) => (c === " " || c === "·") ? c : (((i * 7 + seed) % 11) / 11 < k ? CIPH[(i * 7 + seed * 3) % CIPH.length] : c)).join("");
+
+function render(t) {
+  // title / end cards
+  set($("title"), 1 - pr(t, S.title[1] - .6, S.title[1]));
+  set($("end"), pr(t, S.end[0], S.end[0] + .8));
+
+  // step rail + caption
+  const cur = CAPS.filter((c) => t >= c[0]).pop();
+  STEPS.forEach((_, i) => { const el = $("st" + i); el.className = "step" + (cur && cur[1] - 1 === i ? " on" : cur && cur[1] - 1 > i ? " done" : ""); });
+  set($("rail"), fade(t, 5.4, S.end[0] - .2));
+  set($("brand"), fade(t, 5.4, S.end[0] - .2));
+  if (cur) {
+    const k = fade(t, cur[0], null, .4);
+    set($("cap"), fade(t, 5.5, S.end[0] - .2), 0, (1 - k) * 8);
+    $("capnum").textContent = cur[1]; $("captext").innerHTML = cur[2];
+    $("captext").style.opacity = k;
+  } else set($("cap"), 0);
+
+  // front door
+  set($("door"), fade(t, 5.6, S.end[0] - .2), lerp(-40, 0, pr(t, 5.6, 6.4)));
+  const typed = Math.floor(ASK.length * pr(t, 6.6, 9.6));
+  $("ask").textContent = ASK.slice(0, typed) + (typed < ASK.length && t > 6.6 ? "▍" : "");
+  set($("ask"), fade(t, 6.5, null, .3));
+  set($("thinking"), fade(t, 10.2, S.respond[0] + .4));
+  $("thinking").textContent = "Checking your claim securely" + ".".repeat(1 + Math.floor(t * 2) % 3);
+  set($("payer"), fade(t, 10.4, 14.2), lerp(620, 430, pr(t, 10.4, 12.2)), lerp(-180, -160, pr(t, 10.4, 12.2)));
+
+  // tenant + gate
+  const tk = pr(t, S.secure[0], S.secure[0] + 1.4);
+  set($("tenant"), fade(t, S.secure[0], S.end[0] - .2), 0, 0, lerp(.94, 1, tk));
+  set($("tenantlbl"), fade(t, S.secure[0] + .4, S.end[0] - .2));
+  set($("gate"), fade(t, S.secure[0] + .6, S.check[0] + 1), 0, 0, lerp(.6, 1, pr(t, S.secure[0] + .6, S.secure[0] + 1.2)));
+  set($("gatelbl"), fade(t, S.secure[0] + .9, S.check[0] + 1));
+  [1, 2, 3, 4, 5].forEach((i) => {
+    const el = $("t" + i);
+    set(el, fade(t, S.secure[0] + 1 + i * .25, S.end[0] - .2), 0, lerp(16, 0, pr(t, S.secure[0] + 1 + i * .25, S.secure[0] + 1.6 + i * .25)));
+    const glow = (i === 1 && t > S.check[0] && t < S.prio[0]) || (i === 2 && t > S.prio[0] && t < S.decide[0]) || ((i === 3 || i === 4) && t > S.decide[0] && t < S.respond[0])
+      || (i === 5 && t > S.secure[0] + 6 && t < S.check[0]) || (i === 4 && t > S.respond[0] && t < S.respond[0] + 1.5) || (i === 2 && t > S.learn[0] && t < S.end[0]);
+    el.classList.toggle("glow", !!glow);
+  });
+
+  // packet path: chat → gate (scramble/lock) → secure data → rules → … → back to chat
+  const path = [[S.ask[0] + 4.6, 60, 372], [S.secure[0] + 1.5, 60, 372], [S.secure[0] + 3.2, 330, 312], [S.secure[0] + 5.6, 470, 312],
+                [S.secure[0] + 7.4, 1090, 250], [S.check[0] + .4, 470, 250], [S.prio[0] - 1, 470, 250], [S.prio[0] + .3, 625, 250],
+                [S.decide[0] - .8, 625, 250], [S.decide[0] + .5, 745, 420]];
+  let px = path[0][1], py = path[0][2];
+  for (let i = 1; i < path.length; i++) {
+    if (t >= path[i - 1][0]) { const k = pr(t, path[i - 1][0], path[i][0]); px = lerp(path[i - 1][1], path[i][1], k); py = lerp(path[i - 1][2], path[i][2], k); }
+  }
+  set($("packet"), fade(t, S.ask[0] + 4.6, S.decide[0] + .3, .4), px, py, lerp(1, .6, pr(t, S.decide[0] - .2, S.decide[0] + .6)));
+  const enc = clamp((t - (S.secure[0] + 2.2)) / 1.2) * (1 - clamp((t - (S.secure[0] + 6.6)) / .8));
+  const locked = t > S.secure[0] + 3.2 && t < S.secure[0] + 7.2;
+  $("packet").classList.toggle("locked", locked);
+  $("pkicon").innerHTML = locked ? LOCKSVG : DOCSVG;
+  $("pktext").textContent = locked ? scramble(PLAIN, Math.max(enc, .9), Math.floor(t * 12)) : scramble(PLAIN, enc, Math.floor(t * 12));
+  if (locked && t > S.secure[0] + 4.6) $("pktext").textContent = "Encrypted · " + scramble(PLAIN.slice(0, 12), 1, Math.floor(t * 12));
+
+  // check scene
+  ["c1", "c2", "c3"].forEach((id, i) => set($(id), fade(t, S.check[0] + 1 + i * 1.6, S.prio[0] - .3), lerp(-20, 0, pr(t, S.check[0] + 1 + i * 1.6, S.check[0] + 1.6 + i * 1.6))));
+  set($("verdict"), fade(t, S.check[0] + 6, S.prio[0] - .3), 0, lerp(14, 0, pr(t, S.check[0] + 6, S.check[0] + 6.6)));
+
+  // prioritise scene
+  BUB.forEach((_, i) => {
+    const sx = 480 + (i * 97) % 640, sy = 280 + (i * 53) % 190;
+    const k = pr(t, S.prio[0] + 2.4, S.prio[0] + 3.4);
+    const wob = Math.sin(t * 2 + i) * 6 * (1 - k);
+    const el = $("b" + i); el.style.left = "0px"; el.style.top = "0px";
+    set(el, fade(t, S.prio[0] + .3 + i * .12, S.prio[0] + 3.1, .3), lerp(sx, 760, k), lerp(sy + wob, 330, k), lerp(1, .3, k));
+  });
+  RANKS.forEach((_, i) => set($("r" + i), fade(t, S.prio[0] + 3.4 + i * .35, S.decide[0] - .3), lerp(30, 0, pr(t, S.prio[0] + 3.4 + i * .35, S.prio[0] + 4 + i * .35))));
+  set($("learnnote"), fade(t, S.prio[0] + 5.8, S.decide[0] - .3));
+
+  // decide scene: agent + tools + wires
+  const ak = fade(t, S.decide[0] + .3, S.respond[0] - .3);
+  set($("agent"), ak, 0, 0, lerp(.7, 1, pr(t, S.decide[0] + .3, S.decide[0] + 1)));
+  $("ring").style.transform = `scale(${1 + .12 * Math.sin(t * 5)})`; $("ring").style.opacity = .4 + .4 * Math.abs(Math.sin(t * 2.5));
+  let wires = "";
+  TOOLS.forEach((tl, i) => {
+    const t0 = S.decide[0] + 2 + i * 1.9;
+    const el = $("tl" + i);
+    set(el, fade(t, S.decide[0] + 1 + i * .15, S.respond[0] - .3));
+    el.className = "tool abs" + (t > t0 + 1.2 ? " done" : t > t0 ? " on" : "");
+    set($("rs" + i), fade(t, t0 + 1.2, S.respond[0] - .3));
+    const k = pr(t, t0, t0 + .8);
+    if (k > 0 && t < S.respond[0] - .2) {
+      const ax = 850 - 440, ay = 440 - 84, tx = tl[2] + 80 - 440, ty = tl[3] + 21 - 84;
+      const ex = lerp(ax, tx, k), ey = lerp(ay, ty, k);
+      const col = t > t0 + 1.2 ? "#2E9E6A" : "#00A3C4";
+      wires += `<line x1="${ax}" y1="${ay}" x2="${ex}" y2="${ey}" stroke="${col}" stroke-width="3" stroke-dasharray="7 6" stroke-dashoffset="${-t * 30}" opacity="${ak}"/>`;
+      if (t < t0 + 1.2) wires += `<circle cx="${ex}" cy="${ey}" r="6" fill="${col}" opacity="${ak}"/>`;
+    }
+  });
+  $("wires").innerHTML = wires;
+
+  // respond scene
+  set($("reply"), fade(t, S.respond[0] + .5, S.end[0] - .2), 0, lerp(24, 0, pr(t, S.respond[0] + .5, S.respond[0] + 1.2)));
+  const cx = lerp(330, 92, pr(t, S.respond[0] + 3, S.respond[0] + 4.6)), cy = lerp(640, 508, pr(t, S.respond[0] + 3, S.respond[0] + 4.6));
+  set($("cursor"), fade(t, S.respond[0] + 3, S.respond[0] + 7), cx, cy, t > S.respond[0] + 4.8 && t < S.respond[0] + 5.1 ? .85 : 1);
+  $("cursor").style.left = "0px"; $("cursor").style.top = "0px";
+  $("approve").style.boxShadow = t > S.respond[0] + 4.8 && t < S.respond[0] + 5.6 ? "0 0 0 5px rgba(46,158,106,.35)" : "none";
+  set($("approved"), fade(t, S.respond[0] + 5.2, S.end[0] - .2), 0, lerp(10, 0, pr(t, S.respond[0] + 5.2, S.respond[0] + 5.8)));
+
+  set($("audit"), fade(t, S.respond[0] + 1.2, S.learn[0] - .2), 0, lerp(16, 0, pr(t, S.respond[0] + 1.2, S.respond[0] + 1.9)));
+
+  // learn scene
+  const lk = fade(t, S.learn[0] + .2, S.end[0] - .2);
+  const sweep = pr(t, S.learn[0] + .2, S.learn[0] + 2.4) * 300;
+  $("loop").innerHTML = `<circle cx="150" cy="150" r="108" fill="none" stroke="#E0E3E7" stroke-width="14"/>
+    <circle cx="150" cy="150" r="108" fill="none" stroke="#00A3C4" stroke-width="14" stroke-linecap="round" stroke-dasharray="${sweep * 2.26} 999" transform="rotate(-90 150 150)"/>
+    <text x="150" y="140" text-anchor="middle" font-family="Inter Display, Inter" font-weight="800" font-size="22" fill="#0B1F3A">Approve</text>
+    <text x="150" y="168" text-anchor="middle" font-family="Inter" font-weight="700" font-size="15" fill="#52606D">→ learn → better</text>
+    <text x="150" y="190" text-anchor="middle" font-family="Inter" font-weight="700" font-size="15" fill="#52606D">priorities next time</text>`;
+  set($("loop"), lk);
+  BADGES.forEach((_, i) => set($("bd" + i), fade(t, S.learn[0] + .6 + i * .5, S.end[0] - .2), lerp(24, 0, pr(t, S.learn[0] + .6 + i * .5, S.learn[0] + 1.2 + i * .5))));
+}
+
+window.seek = (ms) => render(ms / 1000);
+window.DURATION = T;
+
+// live playback (looping) unless captured frame-by-frame
+if (!location.search.includes("capture")) {
+  const fit = () => { const s = Math.min(innerWidth / 1280, innerHeight / 720); $("stage").style.transform = `scale(${s})`; };
+  addEventListener("resize", fit); fit();
+  const start = performance.now();
+  const loop = (now) => { render(((now - start) / 1000) % T); requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+} else render(0);
+</script>
+</body>
+</html>
