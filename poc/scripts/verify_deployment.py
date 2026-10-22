@@ -54,15 +54,17 @@ def main() -> int:
     print(f"Verifying {BASE}\n")
     # 1. platform - wait up to 3 minutes for a cold start (the first start also generates the dataset)
     t0 = time.time()
-    while True:
+    while True:  # after a restart Azure answers 503 for a while; wait for a real 200
         try:
             s, body, _ = call("GET", "/health", timeout=60)
-            break
-        except urllib.error.URLError as exc:
-            if time.time() - t0 > 180:
-                print(f"App not reachable after 3 minutes: {exc}")
-                return 1
-            time.sleep(5)
+            if s == 200:
+                break
+        except (urllib.error.URLError, TimeoutError) as exc:
+            body = str(exc)
+        if time.time() - t0 > 300:
+            print(f"App not ready after 5 minutes: {body}")
+            return 1
+        time.sleep(5)
     dt = time.time() - t0
     record("Platform", "App responds (/health)", s == 200 and body == {"status": "ok"}, f"HTTP {s} in {dt:.1f}s")
     s, html, _ = call("GET", "/")

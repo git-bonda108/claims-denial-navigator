@@ -38,19 +38,28 @@ class App:
             out = {"error": f"HTTP {e.code}", "detail": e.read().decode()[:200]}
         return out, time.time() - t0
 
-    def wait(self):
-        t0 = time.time()
-        while True:
+    def wait(self, limit=300):
+        """Wait until the app is really serving: right after a restart Azure answers 503 for a while,
+        and the first real request also generates the demo dataset."""
+        t0, said = time.time(), False
+        while time.time() - t0 < limit:
             try:
-                return self.call("GET", "/api/meta", timeout=60)[0]
-            except urllib.error.URLError:
-                if time.time() - t0 > 180:
-                    raise
-                time.sleep(5)
+                meta = self.call("GET", "/api/meta", timeout=120)[0]
+                if isinstance(meta, dict) and "agent_mode" in meta:
+                    return meta
+            except (urllib.error.URLError, TimeoutError, ValueError):
+                pass
+            if not said:
+                print("Waiting for the app to start (up to 5 minutes after a restart)...")
+                said = True
+            time.sleep(5)
+        raise SystemExit("The app did not become ready within 5 minutes - check it in the browser, then run again.")
 
     def ingest(self, prefix: str):
-        files = self.call("GET", "/api/demo-files")[0].get("files", [])
-        name = next(f for f in files if f.startswith(prefix))
+        resp = self.call("GET", "/api/demo-files")[0]
+        name = next((f for f in resp.get("files", []) if f.startswith(prefix)), None)
+        if not name:
+            raise RuntimeError(f"No live-demo file starting with {prefix} (app returned: {str(resp)[:120]})")
         return self.call("POST", f"/api/demo-files/{name}/ingest")
 
     def decisions(self, claim_id: str, explain=False):
@@ -261,6 +270,8 @@ def main() -> int:
     for cid, title, question, steps, expected, fn in CASES:
         try:
             ok, actual, secs = fn(app, ctx)
+        except KeyError as exc:  # needs the remittance ingested by an earlier case
+            ok, actual, secs = False, f"Skipped: depends on {'TC-01' if 'smm' in str(exc) else 'TC-03'}, which did not complete", 0.0
         except Exception as exc:  # a failed step is a FAIL, not a crash
             ok, actual, secs = False, f"Error: {type(exc).__name__}: {exc}", 0.0
         rows.append({"id": cid, "title": title, "question": question, "steps": steps, "expected": expected,
