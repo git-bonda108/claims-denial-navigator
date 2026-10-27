@@ -125,9 +125,11 @@ def main() -> int:
     record("Ingestion", "Live-demo remittances available", len(names) >= 2, ", ".join(names))
     for n in names:
         s, r, dt = call("POST", f"/api/demo-files/{n}/ingest", timeout=180)
+        if not isinstance(r, dict):
+            r = {"error": f"HTTP {s}: {str(r)[:60]}"}
         ok = s == 200 and r.get("status") == "PROCESSED" and not r.get("unmatched") and r.get("unbalanced") == 0
         record("Ingestion", f"Parse + decide {n[:22]}", ok, f"{r.get('claims')} claims, {r.get('denials')} denials, "
-               f"{r.get('alerts')} alerts in {dt:.1f}s")
+               f"{r.get('alerts')} alerts in {dt:.1f}s" if ok else f"HTTP {s}: {r.get('error') or r.get('detail') or r}")
     s, summ2, _ = call("GET", "/api/summary")
     record("Teams", "Alert cards generated", len(summ2.get("alerts", [])) >= 2,
            f"{len(summ2.get('alerts', []))} cards; delivered to Teams: {sum(1 for a in summ2.get('alerts', []) if a.get('delivered'))}")
