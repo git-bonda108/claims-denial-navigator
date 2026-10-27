@@ -3,7 +3,7 @@
   python3 verify_deployment.py https://<your-app>.azurecontainerapps.io
 
 Standard library only (runs in Azure Cloud Shell as-is). It ingests the live-demo remittances,
-approves one item and overrides another, so restart the app afterwards for a clean demo.
+approves one item and overrides another, then resets the demo data so the app is clean for a live demo.
 """
 from __future__ import annotations
 
@@ -164,7 +164,13 @@ def main() -> int:
     record("Quality", "Zero unsafe actions", ev.get("must_not_violations") == [], f"{len(ev.get('must_not_violations', []))} violations")
     record("Quality", "Noise filter vs ground truth", acc.get("noise", 0) >= 0.99, f"{acc.get('noise')}")
 
-    # 10. exposure
+    # 10. leave the demo clean
+    s, rs, dt = call("POST", "/api/demo/reset", timeout=300)
+    s2, summ3, _ = call("GET", "/api/summary")
+    record("Reset", "Demo data reset to a clean start", s == 200 and summ3.get("completed") == 0 and not summ3.get("alerts"),
+           f"{rs.get('claims')} claims reloaded in {dt:.1f}s" if isinstance(rs, dict) else f"HTTP {s}")
+
+    # 11. exposure
     record("Security", "Sign-in required", s == 401 or "login" in str(html).lower()[:2000],
            "open to anyone with the URL - enable Entra ID authentication before sharing", warn=True)
 
@@ -176,7 +182,7 @@ def main() -> int:
     f = sum(r[2] == "FAIL" for r in results)
     w = sum(r[2] == "WARN" for r in results)
     print(f"\n{p} passed, {w} warnings, {f} failed")
-    print("Reset for a clean demo: restart the Container App revision (portal: Container App -> Revisions -> Restart).")
+    print("The demo data has been reset: the app is ready for a live demo.")
     return 1 if f else 0
 
 

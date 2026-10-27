@@ -104,6 +104,10 @@ def create_app(service: Service | None = None) -> FastAPI:
             raise HTTPException(413, "File too large for the demo (5 MB)")
         return svc().ingest(file.filename or "upload.txt", raw.decode("utf-8", errors="replace"))
 
+    @app.post("/api/demo/reset")
+    def reset_demo():
+        return svc().reset()
+
     @app.get("/api/demo-files")
     def demo_files():
         inbox = svc().data_dir / "demo_inbox"

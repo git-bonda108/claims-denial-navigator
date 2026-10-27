@@ -13,7 +13,19 @@ async function api(path, opts = {}) {
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
   return r.json();
 }
-function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2600); }
+function toast(msg, ms = 2600) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), ms); }
+/* Run a slow action behind a button: disable it, show progress with elapsed seconds, report errors. */
+async function busy(btn, label, fn) {
+  if (btn && btn.disabled) return;
+  const orig = btn ? btn.innerHTML : "", t0 = Date.now();
+  const tick = () => { if (btn) btn.innerHTML = `<span class="spin"></span>${esc(label)} ${Math.round((Date.now() - t0) / 1000)}s`; };
+  if (btn) { btn.disabled = true; btn.classList.add("busy"); tick(); }
+  const timer = setInterval(tick, 1000);
+  try { return await fn(); }
+  catch (e) { toast("Something went wrong: " + e.message + ". Please try again.", 6000); throw e; }
+  finally { clearInterval(timer); if (btn && btn.isConnected) { btn.disabled = false; btn.classList.remove("busy"); btn.innerHTML = orig; } }
+}
+window.addEventListener("unhandledrejection", (e) => { console.error(e.reason); e.preventDefault(); });
 const actionBadge = (a) => `<span class="badge act-${esc(a)}">${esc(META.actions[a] || a)}</span>`;
 const bandBadge = (b, days) => b ? `<span class="badge band-${esc(b)}">${b === "EXPIRED" ? "Expired" : esc(days) + "d"} · ${title(b)}</span>` : `<span class="muted">—</span>`;
 const BAND_COLORS = { EXPIRED: "#7b8794", CRITICAL: "#e4572e", HIGH: "#f2a541", MEDIUM: "#f6c97a", LOW: "#2e9e6a", NONE: "#c3ccd5" };
@@ -107,9 +119,10 @@ async function loadWorklist() {
 /* ------------------------------------------------------------ claim drawer */
 async function openClaim(id, explain = false) {
   const drawer = $("#drawer"); drawer.classList.add("open"); drawer.setAttribute("aria-hidden", "false");
-  $("#drawer-body").innerHTML = `<p class="muted">Loading ${esc(id)}…</p>`;
+  if (!explain) $("#drawer-body").innerHTML = `<p class="muted"><span class="spin"></span>Loading ${esc(id)}…</p>`;
   let c;
-  try { c = await api(`/api/claims/${encodeURIComponent(id)}${explain ? "?explain=true" : ""}`); } catch (e) { $("#drawer-body").innerHTML = `<p>${esc(e.message)}</p>`; return; }
+  try { c = await api(`/api/claims/${encodeURIComponent(id)}${explain ? "?explain=true" : ""}`); }
+  catch (e) { if (explain) throw e; $("#drawer-body").innerHTML = `<p>Could not load ${esc(id)}: ${esc(e.message)}</p><button onclick="openClaim('${esc(id)}')">Try again</button>`; return; }
   const cl = c.claim, rl = c.remit || { lines: [] };
   const work = c.decisions.filter((d) => d.workable), routine = c.decisions.filter((d) => !d.workable);
   const lines = cl.lines.map((ln) => {
@@ -150,27 +163,29 @@ function decisionHtml(d, c) {
     </div>
     ${fb}
     <div class="actions">
-      <button class="win" onclick="sendFeedback(${d.id}, 'APPROVE', '${esc(d.claim_id)}')" ${d.status === "DONE" ? "disabled" : ""}>Approve plan</button>
+      <button class="win" onclick="sendFeedback(this, ${d.id}, 'APPROVE', '${esc(d.claim_id)}')" ${d.status === "DONE" ? "disabled" : ""}>Approve plan</button>
       <select id="ov-${d.id}">${Object.entries(META.actions).map(([k, v]) => `<option value="${k}" ${k === d.action ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
       <input type="text" id="note-${d.id}" placeholder="Reason / note" style="min-width:200px">
-      <button class="secondary" onclick="override(${d.id}, '${esc(d.claim_id)}')" ${d.status === "DONE" ? "disabled" : ""}>Override</button>
-      ${letterable ? `<button onclick="draftLetter(${d.id})">Draft letter</button>` : ""}
-      ${META.agent_mode === "azure" && !(ex.by || "").startsWith("azure") ? `<button class="secondary" onclick="openClaim('${esc(d.claim_id)}', true)">Explain with AI</button>` : ""}
+      <button class="secondary" onclick="override(this, ${d.id}, '${esc(d.claim_id)}')" ${d.status === "DONE" ? "disabled" : ""}>Override</button>
+      ${letterable ? `<button onclick="draftLetter(this, ${d.id})">Draft letter</button>` : ""}
+      ${META.agent_mode === "azure" && !(ex.by || "").startsWith("azure") ? `<button class="secondary" onclick="explainAI(this, '${esc(d.claim_id)}')">Explain with AI</button>` : ""}
     </div></div>`;
 }
-async function sendFeedback(id, verdict, claimId, action = null, note = "") {
-  await api(`/api/decisions/${id}/feedback`, { method: "POST", body: JSON.stringify({ verdict, action, note }) });
+async function sendFeedback(btn, id, verdict, claimId, action = null, note = "") {
+  await busy(btn, "Saving…", () => api(`/api/decisions/${id}/feedback`, { method: "POST", body: JSON.stringify({ verdict, action, note }) }));
   toast(verdict === "APPROVE" ? "Plan approved - item moved to resolved" : "Override saved - added as a precedent");
   openClaim(claimId);
 }
-function override(id, claimId) {
+function override(btn, id, claimId) {
   const note = $("#note-" + id).value.trim();
-  if (!note) { toast("Add a reason so the override can teach the system"); return; }
-  sendFeedback(id, "OVERRIDE", claimId, $("#ov-" + id).value, note);
+  if (!note) { toast("Add a reason so the override can teach the system"); $("#note-" + id).focus(); return; }
+  sendFeedback(btn, id, "OVERRIDE", claimId, $("#ov-" + id).value, note);
 }
-async function draftLetter(id) {
-  const m = $("#modal"); m.classList.add("open"); $("#modal-body").innerHTML = '<p class="muted">Drafting…</p>';
-  const r = await api(`/api/decisions/${id}/letter`, { method: "POST" });
+async function draftLetter(btn, id) {
+  const m = $("#modal"); m.classList.add("open"); $("#modal-body").innerHTML = '<p class="muted"><span class="spin"></span>Drafting the letter…</p>';
+  let r;
+  try { r = await busy(btn, "Drafting…", () => api(`/api/decisions/${id}/letter`, { method: "POST" })); }
+  catch (e) { $("#modal-body").innerHTML = `<h1>Draft letter</h1><p>Could not draft the letter: ${esc(e.message)}. Close this and click Draft letter again.</p>`; return; }
   $("#modal-body").innerHTML = `<h1>Draft letter</h1><p class="sub">Generated by <span class="mono">${esc(r.by)}</span>. Review and edit before sending.</p>
     <textarea class="letter" id="letter-text">${esc(r.text)}</textarea>
     <div class="actions"><button onclick="navigator.clipboard.writeText($('#letter-text').value);toast('Copied')">Copy</button>
@@ -183,6 +198,7 @@ function downloadLetter() {
 function printLetter() {
   const w = window.open("", "_blank"); w.document.write(`<pre style="font:13px/1.5 monospace;white-space:pre-wrap">${esc($("#letter-text").value)}</pre>`); w.document.close(); w.print();
 }
+async function explainAI(btn, claimId) { await busy(btn, "AI is writing…", () => openClaim(claimId, true)); }
 function closeDrawer() { $("#drawer").classList.remove("open"); $("#drawer").setAttribute("aria-hidden", "true"); location.hash = lastView; }
 $("#drawer-close").onclick = closeDrawer;
 $("#drawer").onclick = (e) => { if (e.target.id === "drawer") closeDrawer(); };
@@ -200,44 +216,75 @@ function assistant() {
   el.dataset.ready = 1;
 }
 async function ask(text) {
-  if (!text.trim()) return;
+  if (!text.trim() || ask.busy) return;
+  ask.busy = true; const send = $(".composer button"); send.disabled = true;
   $("#q").value = "";
   const msgs = $("#msgs");
   msgs.insertAdjacentHTML("beforeend", `<div class="msg me">${esc(text)}</div>`);
-  msgs.insertAdjacentHTML("beforeend", `<div class="msg bot" id="typing">…</div>`); msgs.scrollTop = msgs.scrollHeight;
+  msgs.insertAdjacentHTML("beforeend", `<div class="msg bot" id="typing"><span class="spin"></span>Thinking…</div>`); msgs.scrollTop = msgs.scrollHeight;
   const r = await api("/api/chat", { method: "POST", body: JSON.stringify({ message: text }) }).catch((e) => ({ reply: e.message, by: "error" }));
-  $("#typing").remove();
+  $("#typing").remove(); ask.busy = false; send.disabled = false; $("#q").focus();
   const html = md(r.reply).replace(/PRH-\d{5}/g, (m) => `<a href="#claim/${m}">${m}</a>`);
   msgs.insertAdjacentHTML("beforeend", `<div class="msg bot">${html}<div class="by">${esc(r.by)}</div></div>`); msgs.scrollTop = msgs.scrollHeight;
 }
 
 /* ------------------------------------------------------------ inbox */
+let INBOX_BUSY = false;
 async function inbox() {
   const el = $("#view-inbox");
+  if (INBOX_BUSY) return; // a file is processing: keep the current screen (and its progress) until it finishes
   const [{ files }, s] = await Promise.all([api("/api/demo-files"), api("/api/summary")]);
+  if (INBOX_BUSY) return;
+  const keep = $("#ingest-result")?.innerHTML || "";
+  const done = (f) => s.files.find((x) => x.name === f && x.status === "PROCESSED");
   el.innerHTML = `<h1>Remittance inbox</h1><p class="sub">Drop an 835 (or 837) file. It is parsed deterministically, matched to the claim, decided, ranked and routed in seconds.</p>
     <div class="grid two">
-      <div class="card"><h2>Live demo remittances</h2>${files.map((f) => `<div class="actions" style="margin:6px 0"><span class="mono small" style="flex:1">${esc(f)}</span><a class="small" href="/api/demo-files/${encodeURIComponent(f)}" target="_blank">view raw</a><button onclick="ingestDemo('${esc(f)}')">Ingest</button></div>`).join("") || '<p class="muted">None</p>'}
-        <div id="ingest-result" class="result"></div></div>
-      <div class="card"><h2>Upload a file</h2><label class="drop" id="drop"><input type="file" id="file" hidden accept=".txt,.835,.837,.edi,.x12">Drag &amp; drop an X12 file here, or click to choose</label></div>
+      <div class="card"><h2>Live demo remittances</h2>${files.map((f) => { const d = done(f); return `<div class="actions inbox-row" style="margin:6px 0"><span class="mono small" style="flex:1">${esc(f)}${d ? ` <span class="badge act-CORRECT_AND_RESUBMIT">Ingested ✓</span>` : ""}</span><a class="small" href="/api/demo-files/${encodeURIComponent(f)}" target="_blank">view raw</a><button class="${d ? "secondary" : ""}" data-file="${esc(f)}" onclick="ingestDemo(this)">${d ? "Ingest again" : "Ingest"}</button></div>`; }).join("") || '<p class="muted">None</p>'}
+        <div id="ingest-result" class="result">${keep}</div>
+        <div class="small muted" style="margin-top:10px">Ingest each file once. A Medicare file takes about 5–15 seconds while the AI writes an explanation for every denial.</div></div>
+      <div class="card"><h2>Upload a file</h2><label class="drop" id="drop"><input type="file" id="file" hidden accept=".txt,.835,.837,.edi,.x12">Drag &amp; drop an X12 file here, or click to choose</label>
+        <h2 style="margin-top:18px">Reset the demo</h2><p class="small muted">Reloads the starting data and clears alerts, approvals and overrides.</p><button class="secondary" id="reset-btn" onclick="resetDemo(this)">Reset demo data</button></div>
     </div>
-    <div class="card" style="margin-top:16px"><h2>Recent files</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>File</th><th>Type</th><th>Status</th><th>Detail</th></tr></thead><tbody>
-      ${s.files.map((f) => `<tr><td>${f.id}</td><td class="mono small">${esc(f.name)}</td><td>${esc(f.kind)}</td><td><span class="badge ${f.status === "PROCESSED" ? "act-CORRECT_AND_RESUBMIT" : "band-CRITICAL"}">${esc(f.status)}</span></td><td class="small">${esc(f.detail)}</td></tr>`).join("")}</tbody></table></div></div>`;
+    <div class="card" style="margin-top:16px"><h2>Recent files</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>File</th><th>Type</th><th>Received (UTC)</th><th>Status</th><th>Detail</th></tr></thead><tbody>
+      ${s.files.map((f) => `<tr><td>${f.id}</td><td class="mono small">${esc(f.name)}</td><td>${esc(f.kind)}</td><td class="small">${esc((f.received_at || "").replace("T", " ").replace("+00:00", ""))}</td><td><span class="badge ${f.status === "PROCESSED" ? "act-CORRECT_AND_RESUBMIT" : "band-CRITICAL"}">${esc(f.status)}</span></td><td class="small">${esc(f.detail)}</td></tr>`).join("")}</tbody></table></div></div>`;
   const drop = $("#drop"), input = $("#file");
-  drop.onclick = () => input.click();
-  input.onchange = () => input.files[0] && upload(input.files[0]);
+  input.onchange = () => { input.files[0] && upload(input.files[0]); input.value = ""; };
   drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
   drop.ondragleave = () => drop.classList.remove("over");
   drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); e.dataTransfer.files[0] && upload(e.dataTransfer.files[0]); };
 }
-async function ingestDemo(name) { showResult(await api(`/api/demo-files/${encodeURIComponent(name)}/ingest`, { method: "POST" })); }
-async function upload(file) { const fd = new FormData(); fd.append("file", file); showResult(await api("/api/ingest", { method: "POST", body: fd })); }
+async function runIngest(btn, label, call) {
+  if (INBOX_BUSY) { toast("Still processing the previous file - one moment"); return; }
+  INBOX_BUSY = true;
+  const others = [...document.querySelectorAll("#view-inbox button[data-file], #reset-btn")].filter((b) => b !== btn);
+  others.forEach((b) => (b.disabled = true));
+  $("#ingest-result").innerHTML = `<div class="alert-card warn"><span class="spin"></span><b>${esc(label)}</b> - reading the file, matching claims, deciding each denial and writing explanations…</div>`;
+  try {
+    const r = await busy(btn, "Processing…", call);
+    INBOX_BUSY = false;
+    showResult(r);
+    if (lastView === "inbox") await inbox().catch(() => {});
+  } catch (e) {
+    $("#ingest-result").innerHTML = `<div class="alert-card"><b>Could not process ${esc(label)}:</b> ${esc(e.message)}. Wait a few seconds and click Ingest again.</div>`;
+  } finally { INBOX_BUSY = false; others.forEach((b) => b.isConnected && (b.disabled = false)); }
+}
+function ingestDemo(btn) { const name = btn.dataset.file; return runIngest(btn, name, () => api(`/api/demo-files/${encodeURIComponent(name)}/ingest`, { method: "POST" })); }
+function upload(file) { const fd = new FormData(); fd.append("file", file); return runIngest(null, file.name, () => api("/api/ingest", { method: "POST", body: fd })); }
+async function resetDemo(btn) {
+  if (!confirm("Reset the demo to its starting data? Alerts, approvals and overrides will be cleared.")) return;
+  if (INBOX_BUSY) return;
+  INBOX_BUSY = true;
+  try { await busy(btn, "Resetting…", () => api("/api/demo/reset", { method: "POST" })); INBOX_BUSY = false; $("#ingest-result").innerHTML = ""; toast("Demo reset to its starting data"); await inbox(); }
+  catch (e) { /* busy() already showed the error */ }
+  finally { INBOX_BUSY = false; }
+}
 function showResult(r) {
-  const el = $("#ingest-result") || $("#view-inbox");
-  if (r.status !== "PROCESSED") { el.innerHTML = `<div class="alert-card"><b>Quarantined:</b> ${esc(r.error)}</div>`; return; }
-  el.innerHTML = `<div class="alert-card warn" style="border-left-color:var(--win)"><b>${esc(r.kind)} processed${r.payer ? " · " + esc(r.payer) : ""}</b> - ${r.claims} claims${r.denials !== undefined ? `, ${r.denials} denials decided, ${r.alerts} Teams alerts` : ""}${r.unmatched?.length ? `, ${r.unmatched.length} unmatched` : ""}
-    ${(r.new_items || []).map((i) => `<div class="small"><a href="#claim/${esc(i.claim_id)}">${esc(i.claim_id)}</a> → ${esc(META.actions[i.action])} · ${money2(i.amount)}</div>`).join("")}</div>`;
-  toast(`${r.denials ?? r.claims} items processed`);
+  const el = $("#ingest-result");
+  if (r.status !== "PROCESSED") { el.innerHTML = `<div class="alert-card"><b>Quarantined:</b> ${esc(r.error)}</div>`; toast("File quarantined - see the reason in the inbox"); return; }
+  el.innerHTML = `<div class="alert-card warn" style="border-left-color:var(--win)"><b>✓ ${esc(r.kind)} processed${r.payer ? " · " + esc(r.payer) : ""}</b> - ${r.claims} claims${r.denials !== undefined ? `, ${r.denials} denials decided, ${r.alerts} Teams alerts` : ""}${r.unmatched?.length ? `, ${r.unmatched.length} unmatched` : ""}
+    ${(r.new_items || []).map((i) => `<div class="small"><a href="#claim/${esc(i.claim_id)}">${esc(i.claim_id)}</a> → ${esc(META.actions[i.action])} · ${money2(i.amount)}</div>`).join("")}
+    ${r.alerts ? `<div class="small" style="margin-top:6px"><a href="#dashboard">See the Teams alerts on the Dashboard →</a></div>` : ""}</div>`;
+  toast(r.denials !== undefined ? `Done: ${r.denials} denials decided, ${r.alerts} Teams alerts` : `Done: ${r.claims} claims loaded`);
 }
 
 /* ------------------------------------------------------------ proof */
@@ -265,7 +312,10 @@ async function proof() {
 
 /* ------------------------------------------------------------ boot */
 (async function boot() {
-  META = await api("/api/meta");
+  for (let i = 0; ; i++) {
+    try { META = await api("/api/meta"); break; }
+    catch (e) { if (i > 40) throw e; $("#view-dashboard").innerHTML = `<p class="muted"><span class="spin"></span>Starting up and loading the demo data… (${i * 3}s)</p>`; await new Promise((r) => setTimeout(r, 3000)); }
+  }
   $("#mode-pill").textContent = META.agent_mode === "azure" ? "AI: Azure OpenAI" : "AI: offline templates";
   $("#asof").textContent = "Demo date " + META.as_of;
   route();

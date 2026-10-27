@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
@@ -54,6 +55,16 @@ class Service:
             self._rerank()
         return {"claims": self.store.count("claims"), "remits": self.store.count("remits"), "as_of": self.as_of.isoformat()}
 
+    def reset(self) -> dict:
+        """Put the demo back to its starting state: reload the dataset, clear alerts, overrides and precedents."""
+        with self.store.lock:
+            self.store.wipe()
+        teams.OUTBOX.clear()
+        self.ref.knowledge[:] = [c for c in self.ref.knowledge if not str(c.get("id", "")).startswith("P")]
+        self.library = Library(self.ref)
+        self.agent.library = self.library
+        return self.bootstrap()
+
     def _ehr(self) -> dict:
         if not hasattr(self, "_ehr_cache"):
             p = self.data_dir / "ehr_context.json"
@@ -90,6 +101,7 @@ class Service:
         remit_date = date.fromisoformat(remit["payment_date"])
         new, alerts, orphans, unbalanced = [], [], [], 0
         payer = self.ref.payers[payer_key]
+        batch, pending = [], []
         for rc in remit["claims"]:
             unbalanced += not rc["balanced"]
             stored = self.store.claim(rc["claim_id"])
@@ -100,9 +112,6 @@ class Service:
             decisions = rules.decide(stored["claim"], rc, stored["ehr"], payer_key, self.ref, remit_date, self.as_of)
             expected_allowed = sum(ln.get("allowed") or 0 for ln in rc["lines"]) or None
             for d in decisions:
-                if d["workable"]:
-                    # bulk loads use the deterministic template; live uploads get the model (if configured)
-                    d["explanation"] = self.agent.explain(d, stored["claim"], stored["ehr"], payer_key, use_model=notify)
                 svc = self.ref.services.get(d.get("code") or "")
                 units = next((ln["units"] for ln in stored["claim"]["lines"] if ln["line_no"] == d["line_no"]), 1)
                 allowed = svc["allowed"] * units if svc else expected_allowed
@@ -110,6 +119,22 @@ class Service:
                 d.update(payer_key=payer_key, payer=payer["name"], dos=stored["claim"]["dos"], remit_date=remit_date.isoformat(),
                          patient=f"{stored['claim']['patient']['last']}, {stored['claim']['patient']['first']}",
                          category=CATEGORY.get(d["carc"], "Other") if d["workable"] else "Routine")
+                if d["workable"]:
+                    pending.append((d, stored))
+            batch.append((decisions, stored))
+        # explanations: bulk loads use the deterministic template; live uploads call the AI (if configured),
+        # in parallel so a file with several denials still returns in a few seconds
+        if pending:
+            explain = lambda item: self.agent.explain(item[0], item[1]["claim"], item[1]["ehr"], payer_key, use_model=notify)
+            if notify and self.agent.mode == "azure" and len(pending) > 1:
+                with ThreadPoolExecutor(max_workers=min(8, len(pending))) as pool:
+                    results = list(pool.map(explain, pending))
+            else:
+                results = [explain(item) for item in pending]
+            for (d, _), ex in zip(pending, results):
+                d["explanation"] = ex
+        for decisions, stored in batch:
+            for d in decisions:
                 d["id"] = self.store.put_decision(d)
                 if d["workable"]:
                     new.append(d)

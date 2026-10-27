@@ -29,6 +29,12 @@ class Store:
         with self.lock:
             self.db.executescript(SCHEMA)
 
+    def wipe(self) -> None:
+        with self.lock:
+            for table in ("feedback", "decisions", "remits", "claims", "files"):
+                self.db.execute(f"DELETE FROM {table}")
+            self.db.commit()
+
     def count(self, table: str) -> int:
         return self.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
 

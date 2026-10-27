@@ -241,13 +241,13 @@ def write_workbook(path: str, rows: list[dict], meta: dict) -> None:
     how = wb.create_sheet("How to test")
     steps = [
         "How to test Denial Navigator (about 10 minutes)",
-        "1. Start clean: restart the app (Azure portal → Container App → Revisions → Restart) and wait 1 minute.",
+        "1. Start clean: open the app → Remittance inbox → Reset demo data (takes about 10 seconds).",
         "2. Open the app link in a browser. You land on the Dashboard.",
         "3. Follow the steps in the 'How to test' column of each test case, in order TC-01 to TC-05.",
         "4. Compare what you see with the 'Expected result' column. Write your name and any notes in the yellow columns.",
         "5. To capture results automatically instead, run in Azure Cloud Shell:",
         "   python3 scripts/run_test_cases.py <app link> --out results.xlsx   (then Manage files → Download)",
-        "6. Restart the app again before a live demo, so the inbox files are fresh.",
+        "6. Before a live demo, click Reset demo data again (the script does this for you automatically).",
         "",
         "What the colours mean: PASS (green) = behaved as expected. FAIL (red) = did not; see the Actual result column.",
         "All data is synthetic: a fictional hospital, fictional payers and patients. No real patient information is used.",
@@ -266,6 +266,8 @@ def main() -> int:
     a = ap.parse_args()
     app = App(a.url)
     meta = app.wait()
+    print("Resetting the demo data for a clean run...")
+    app.call("POST", "/api/demo/reset", timeout=300)
     ctx: dict = {}
     rows = []
     for cid, title, question, steps, expected, fn in CASES:
@@ -281,6 +283,7 @@ def main() -> int:
     run_meta = {"url": a.url, "mode": "Azure OpenAI" if meta.get("agent_mode") == "azure" else "offline templates",
                 "run_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")}
     write_workbook(a.out, rows, run_meta)
+    app.call("POST", "/api/demo/reset", timeout=300)  # leave the app clean for a live demo
     print(f"{sum(r['status'] == 'PASS' for r in rows)} of {len(rows)} passed · workbook: {a.out}")
     return 0 if all(r["status"] == "PASS" for r in rows) else 1
 
