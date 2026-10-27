@@ -4,11 +4,12 @@ Run locally:  uvicorn denialnav.api:app --reload
 """
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -20,6 +21,9 @@ WEB = ROOT / "web"
 DATA_DIR = Path(os.getenv("DATA_DIR", ROOT / "data" / "synthetic"))
 DB_PATH = os.getenv("DB_PATH", ":memory:")
 MAX_UPLOAD = 5 * 1024 * 1024
+# Version of the web client: changes whenever app.js or styles.css change, so browsers never run a stale copy
+BUILD = hashlib.sha1(b"".join((WEB / f).read_bytes() for f in ("app.js", "styles.css") if (WEB / f).exists())).hexdigest()[:8]
+NO_STORE = {"Cache-Control": "no-store, max-age=0"}
 
 
 class Feedback(BaseModel):
@@ -35,6 +39,16 @@ class Chat(BaseModel):
 def create_app(service: Service | None = None) -> FastAPI:
     app = FastAPI(title="Denial Navigator", version="0.1.0")
     state = {"svc": service}
+
+    @app.middleware("http")
+    async def cache_headers(request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/api/") or path in ("/", "/explainer"):
+            response.headers["Cache-Control"] = "no-store, max-age=0"
+        elif path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"  # always revalidate (cheap 304 when unchanged)
+        return response
 
     def svc() -> Service:
         if state["svc"] is None:
@@ -58,7 +72,7 @@ def create_app(service: Service | None = None) -> FastAPI:
     @app.get("/api/meta")
     def meta():
         s = svc()
-        return {"actions": ACTIONS, "queues": QUEUES, "agent_mode": s.agent.mode, "as_of": s.as_of.isoformat(),
+        return {"actions": ACTIONS, "queues": QUEUES, "agent_mode": s.agent.mode, "as_of": s.as_of.isoformat(), "build": BUILD,
                 "manifest": {k: v for k, v in s.manifest.items() if k != "providers"},
                 "payers": {k: v["name"] for k, v in s.ref.payers.items()}}
 
@@ -145,19 +159,21 @@ def create_app(service: Service | None = None) -> FastAPI:
     if WEB.exists():
         app.mount("/static", StaticFiles(directory=WEB), name="static")
 
-        @app.get("/")
+        @app.api_route("/", response_class=HTMLResponse, methods=["GET", "HEAD"])
         def index():
-            return FileResponse(WEB / "index.html")
+            html = (WEB / "index.html").read_text()
+            html = html.replace('/static/app.js"', f'/static/app.js?v={BUILD}"').replace('/static/styles.css"', f'/static/styles.css?v={BUILD}"')
+            return HTMLResponse(html, headers=NO_STORE)
 
-        @app.get("/explainer")
+        @app.api_route("/explainer", methods=["GET", "HEAD"])
         def explainer():
             return FileResponse(WEB / "explainer.html")
 
-        @app.get("/explainer.gif")
+        @app.api_route("/explainer.gif", methods=["GET", "HEAD"])
         def explainer_gif():
             return FileResponse(WEB / "media" / "Denial_Navigator_Explainer.gif", media_type="image/gif")
 
-        @app.get("/explainer.mp4")
+        @app.api_route("/explainer.mp4", methods=["GET", "HEAD"])
         def explainer_mp4():
             return FileResponse(WEB / "media" / "Denial_Navigator_Explainer.mp4", media_type="video/mp4")
 

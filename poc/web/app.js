@@ -104,9 +104,12 @@ async function worklist(band) {
   loadWorklist();
 }
 async function loadWorklist() {
+  const seq = (loadWorklist.seq = (loadWorklist.seq || 0) + 1);
   const q = new URLSearchParams();
   [["queue", "#f-queue"], ["band", "#f-band"], ["action", "#f-action"], ["payer", "#f-payer"], ["status", "#f-status"]].forEach(([k, s]) => q.set(k, $(s).value));
+  $("#wl-count").textContent = "Loading…";
   const { items } = await api("/api/worklist?" + q);
+  if (seq !== loadWorklist.seq) return; // a newer filter change is already loading: don't show stale rows
   $("#wl-count").textContent = `${items.length} items · ${money(items.reduce((a, r) => a + r.amount, 0))}`;
   $("#wl").innerHTML = items.map((r) => `<tr class="click" onclick="location.hash='claim/${esc(r.claim_id)}'">
     <td class="score">${r.score}</td><td class="mono">${esc(r.claim_id)}${r.needs_review ? ' <span title="needs human review">⚑</span>' : ""}</td>
@@ -318,5 +321,6 @@ async function proof() {
   }
   $("#mode-pill").textContent = META.agent_mode === "azure" ? "AI: Azure OpenAI" : "AI: offline templates";
   $("#asof").textContent = "Demo date " + META.as_of;
+  $("#build").textContent = "Version " + (META.build || "-");
   route();
 })();

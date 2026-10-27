@@ -20,9 +20,10 @@
      ```bash
      az containerapp revision restart -n ca-dn-sq5zvttffcgfu -g rg-denial-nav-demo --revision $(az containerapp show -n ca-dn-sq5zvttffcgfu -g rg-denial-nav-demo --query properties.latestRevisionName -o tsv) -o none && echo RESET
      ```
-2. **Open two Chrome tabs:** the live demo, and `/explainer`. Use Chrome or Edge on your Mac so the deck fonts show.
+2. **Open two Chrome tabs:** the live demo, and `/explainer`. Use Chrome or Edge on your Mac so the deck fonts show. Press **Cmd + Shift + R** once in the demo tab.
 3. **Check the starting state:**
-   - The sidebar, bottom left, says **"AI: Azure OpenAI"**.
+   - The sidebar, bottom left, says **"AI: Azure OpenAI"** and **"Version …"**, matching the version printed by the last deploy. If there's no "Version" line, you're looking at an old cached page: press Cmd + Shift + R.
+   - The Remittance inbox has a **Reset demo data** button, and both live files show a plain **Ingest** button.
    - The Dashboard shows **Resolved 0**.
    - Teams alerts says **"No alerts yet"**.
 4. **Close everything else and turn on Do Not Disturb.** Set the browser zoom to 90–100%.
@@ -79,7 +80,19 @@
 
 ---
 
-## E. After the demo
+## E. Test cases and validation
+
+- **Workbook:** [`docs/Denial_Navigator_Test_Cases.xlsx`](./Denial_Navigator_Test_Cases.xlsx) holds 17 business test cases (TC-01 to TC-17) plus 49 browser checks. Every case lists how to test it in the web app, the expected result and the automated result. Yellow columns are for your own PASS/FAIL, name, date and notes.
+- **To re-run against live Azure**, in Cloud Shell:
+  ```bash
+  cd ~/claims-denial-navigator/poc && python3 scripts/run_test_cases.py https://ca-dn-sq5zvttffcgfu.agreeablewater-ff7c59b5.eastus2.azurecontainerapps.io
+  download Denial_Navigator_Test_Results.xlsx
+  ```
+  The script prints the exact path of the workbook. `download` sends the file to your browser's Downloads folder. The run starts and ends with a reset, so the app is clean afterwards.
+
+---
+
+## F. After the demo
 
 - **Reset for the next one:** Remittance inbox → **Reset demo data**.
 - **Stop all costs once the demos are finished:** in the Azure portal, delete the resource group `rg-denial-nav-demo`.

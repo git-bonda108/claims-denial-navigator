@@ -191,12 +191,12 @@ class Service:
         remit = self.store.remit(claim_id)
         decisions = self.store.decisions(claim_id)
         if explain and self.agent.mode == "azure":
-            for d in decisions:
-                if d["workable"] and not d.get("explanation", {}).get("by", "").startswith("azure"):
-                    did, status = d.pop("id"), d.pop("status")
-                    d["explanation"] = self.agent.explain(d, stored["claim"], stored["ehr"], stored["payer_key"])
-                    self.store.update_decision(did, d)
-                    d["id"], d["status"] = did, status
+            todo = [d for d in decisions if d["workable"] and not d.get("explanation", {}).get("by", "").startswith("azure")]
+            with ThreadPoolExecutor(max_workers=min(8, len(todo) or 1)) as pool:  # several denied lines: explain them at once
+                results = list(pool.map(lambda d: self.agent.explain(d, stored["claim"], stored["ehr"], stored["payer_key"]), todo))
+            for d, ex in zip(todo, results):
+                d["explanation"] = ex
+                self.store.update_decision(d["id"], {k: v for k, v in d.items() if k not in ("id", "status")})
         for d in decisions:
             d["feedback"] = self.store.feedback(d["id"])
         return {"claim": stored["claim"], "ehr": stored["ehr"], "payer_key": stored["payer_key"],

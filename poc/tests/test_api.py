@@ -65,3 +65,14 @@ def test_live_ingest_runs_ai_in_parallel_and_reset(svc):
     s = c.get("/api/summary").json()
     assert s["completed"] == 0 and s["alerts"] == [] and not any(f["name"] == name for f in s["files"])
     assert not any(k["id"].startswith("P") for k in c.get("/api/knowledge").json()["cards"])
+
+
+def test_browsers_always_get_latest_client(svc):
+    from denialnav.api import BUILD
+    c = TestClient(create_app(svc))
+    r = c.get("/")
+    assert "no-store" in r.headers["cache-control"] and f"/static/app.js?v={BUILD}" in r.text and f"/static/styles.css?v={BUILD}" in r.text
+    assert c.get("/api/meta").json()["build"] == BUILD
+    assert c.get(f"/static/app.js?v={BUILD}").headers["cache-control"] == "no-cache"
+    for path in ("/", "/explainer", "/explainer.gif", "/explainer.mp4"):
+        assert c.head(path).status_code == 200, path
