@@ -76,3 +76,18 @@ def test_browsers_always_get_latest_client(svc):
     assert c.get(f"/static/app.js?v={BUILD}").headers["cache-control"] == "no-cache"
     for path in ("/", "/explainer", "/explainer.gif", "/explainer.mp4"):
         assert c.head(path).status_code == 200, path
+
+
+def test_agent_card_and_partner_branding(svc, monkeypatch):
+    monkeypatch.setenv("PARTNER_NAME", "Centered Networks")
+    c = TestClient(create_app(svc))
+    meta = c.get("/api/meta").json()
+    assert meta["partner"]["name"] == "Centered Networks" and "approves" in meta["partner"]["tagline"]
+    card = c.get("/api/agent-card").json()
+    for k in ("owner", "authority", "evaluation", "identity", "telemetry", "runbook"):
+        assert card[k], k
+    assert all(t["access"] == "read-only" for t in card["authority"]["tools"]) and len(card["authority"]["tools"]) == 5
+    assert card["evaluation"]["unsafe_actions"] == 0 and card["telemetry"]["decisions"] > 0
+    assert "Centered Networks" in card["owner"]["operator"]
+    monkeypatch.delenv("PARTNER_NAME")
+    assert c.get("/api/meta").json()["partner"]["name"] == ""

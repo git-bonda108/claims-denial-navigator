@@ -157,3 +157,25 @@ details summary { cursor: pointer; color: var(--slate); margin: 8px 0; }
   border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 button.busy { opacity: .85; cursor: progress; }
+
+/* partner branding, agent card, value & pricing */
+.brand-partner { font-size: 11px; font-weight: 600; color: #7fdcef; margin-top: 2px; }
+.agent-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.agent-head h2 { margin: 0; }
+.agent-head .badge { margin-left: auto; }
+.agent-num { width: 30px; height: 30px; flex: none; border-radius: 50%; background: var(--brand-primary); color: #fff; display: grid; place-items: center; font-weight: 700; }
+.kv { display: grid; grid-template-columns: 170px 1fr; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.kv > div:first-child { color: var(--slate); }
+ul.tight { margin: 0; padding-left: 18px; } ul.tight li { margin: 2px 0; }
+.value-grid { grid-template-columns: minmax(260px, 340px) 1fr; align-items: start; }
+@media (max-width: 900px) { .value-grid { grid-template-columns: 1fr; } .kv { grid-template-columns: 1fr; } }
+label.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--slate); margin-bottom: 12px; }
+label.field input, label.field select { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink, #1f2933); background: #fff; }
+.vbar { height: 16px; border-radius: 8px; background: #e4e9ef; overflow: hidden; margin: 8px 0; }
+.vbar span { display: block; height: 100%; background: var(--win); }
+.tl { display: grid; gap: 6px; margin: 6px 0 12px; }
+.tl-row, .tl-weeks { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; }
+.tl-bar { border-radius: 6px; color: #fff; font-size: 11px; font-weight: 600; padding: 5px 8px; white-space: nowrap; overflow: hidden; }
+.tl-bar.poc { background: var(--brand-accent); } .tl-bar.pilot { background: var(--brand-secondary); } .tl-bar.prod { background: var(--brand-primary); }
+.tl-weeks span { font-size: 10px; color: var(--slate); text-align: center; }
+#v-out .kpi .value { font-size: 23px; }

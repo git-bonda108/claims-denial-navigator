@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
@@ -13,6 +15,8 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import teams
+from .agent import CHAT_TOOLS
 from .rules import ACTIONS, QUEUES
 from .service import Service
 
@@ -24,6 +28,14 @@ MAX_UPLOAD = 5 * 1024 * 1024
 # Version of the web client: changes whenever app.js or styles.css change, so browsers never run a stale copy
 BUILD = hashlib.sha1(b"".join((WEB / f).read_bytes() for f in ("app.js", "styles.css") if (WEB / f).exists())).hexdigest()[:8]
 NO_STORE = {"Cache-Control": "no-store, max-age=0"}
+STARTED = time.time()
+REPO_DOCS = "https://github.com/git-bonda108/claims-denial-navigator/blob/claude/ecstatic-mayer-suc223/docs"
+
+
+def partner() -> dict:
+    """Optional partner branding for a partner-specific demo (e.g. PARTNER_NAME="Centered Networks")."""
+    name = os.getenv("PARTNER_NAME", "").strip()
+    return {"name": name, "tagline": os.getenv("PARTNER_TAGLINE", "Built on Microsoft Foundry · a person approves every action" if name else "")}
 
 
 class Feedback(BaseModel):
@@ -72,7 +84,7 @@ def create_app(service: Service | None = None) -> FastAPI:
     @app.get("/api/meta")
     def meta():
         s = svc()
-        return {"actions": ACTIONS, "queues": QUEUES, "agent_mode": s.agent.mode, "as_of": s.as_of.isoformat(), "build": BUILD,
+        return {"actions": ACTIONS, "queues": QUEUES, "agent_mode": s.agent.mode, "as_of": s.as_of.isoformat(), "build": BUILD, "partner": partner(),
                 "manifest": {k: v for k, v in s.manifest.items() if k != "providers"},
                 "payers": {k: v["name"] for k, v in s.ref.payers.items()}}
 
@@ -145,6 +157,49 @@ def create_app(service: Service | None = None) -> FastAPI:
     def chat(body: Chat):
         s = svc()
         return s.agent.chat(body.message[:2000], s)
+
+    @app.get("/api/agent-card")
+    def agent_card():
+        """The six things a production agent needs, filled from the running system."""
+        s = svc()
+        ev = s.evaluate()
+        fb = s.store.feedback()
+        st = dict(s.agent.stats)
+        azure = s.agent.mode == "azure"
+        keyless = azure and not os.getenv("AZURE_OPENAI_API_KEY")
+        return {
+            "owner": {"business_owner": os.getenv("AGENT_OWNER", "Revenue-cycle director, [Hospital]"),
+                      "technical_owner": os.getenv("AGENT_TECH_OWNER", "Alif Consulting delivery lead"),
+                      "operator": os.getenv("AGENT_OPERATOR", (partner()["name"] or "Partner") + " Managed AgentOps")},
+            "authority": {"tools": [{"name": t["function"]["name"], "purpose": t["function"]["description"], "access": "read-only"} for t in CHAT_TOOLS],
+                          "actions": list(ACTIONS.values()),
+                          "decides": "Rules decide the action, owner and deadline; the AI explains and drafts",
+                          "may_propose": "Only for items flagged Manual review",
+                          "human_approval": ["Every appeal, write-off and resubmission is approved by a person",
+                                             "An override needs a reason and becomes a precedent",
+                                             "The agent never sends anything to a payer"]},
+            "evaluation": {"decision_accuracy": ev.get("accuracy", {}).get("denial"), "noise_accuracy": ev.get("accuracy", {}).get("noise"),
+                           "unsafe_actions": len(ev.get("must_not_violations", [])), "labelled_denials": ev.get("counts", {}).get("denial"),
+                           "deadlines_computed": ev.get("deadlines_computed"),
+                           "suites": "30 automated tests · 17 business test cases · 49 browser checks",
+                           "note": "Synthetic data; the pilot re-scores on the hospital's own de-identified remittances"},
+            "identity": {"model": f"Azure OpenAI {s.agent.deployment} in Microsoft Foundry" if azure else "Offline templates (no AI service configured)",
+                         "guardrail": "Microsoft Foundry default guardrail: content filters, Prompt Shields for prompt attacks, protected material" if azure else "n/a",
+                         "service_identity": "Managed identity, no API keys" if keyless else ("API key" if azure else "n/a"),
+                         "user_sign_in": "Microsoft Entra ID (switched off for this public demo)",
+                         "queue_scoping": "On" if os.getenv("ENFORCE_QUEUES") == "1" else "Available (off in demo)",
+                         "data_location": "Inside the hospital's own Azure tenant"},
+            "telemetry": {"ai_calls": st["calls"], "ai_errors": st["errors"],
+                          "ai_avg_ms": round(st["total_ms"] / st["calls"]) if st["calls"] else None, "last_ai_call": st["last_call"],
+                          "files_processed": s.store.count("files"), "decisions": s.store.count("decisions"),
+                          "approvals": sum(f["verdict"] == "APPROVE" for f in fb), "overrides": sum(f["verdict"] == "OVERRIDE" for f in fb),
+                          "teams_alerts": len(teams.OUTBOX), "uptime_minutes": round((time.time() - STARTED) / 60),
+                          "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds")},
+            "runbook": [{"title": "Demo runbook", "url": f"{REPO_DOCS}/DEMO_RUNBOOK.md"},
+                        {"title": "Test cases and expected outputs", "url": f"{REPO_DOCS}/TEST_CASES.md"},
+                        {"title": "Proof of concept plan", "url": f"{REPO_DOCS}/POC_PLAN.md"},
+                        {"title": "74-second explainer", "url": "/explainer"}],
+        }
 
     @app.get("/api/evals")
     def evals():

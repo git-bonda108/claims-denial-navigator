@@ -39,7 +39,7 @@ function route() {
   $("#drawer").classList.remove("open");
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + view));
   document.querySelectorAll("nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
-  ({ dashboard, worklist, assistant, inbox, proof }[view] || dashboard)(arg);
+  ({ dashboard, worklist, assistant, inbox, proof, agent, value }[view] || dashboard)(arg);
 }
 window.addEventListener("hashchange", route);
 
@@ -313,6 +313,111 @@ async function proof() {
     </div>`;
 }
 
+/* ------------------------------------------------------------ agent card */
+async function agent() {
+  const el = $("#view-agent");
+  el.innerHTML = '<p class="muted"><span class="spin"></span>Loading the agent card…</p>';
+  const c = await api("/api/agent-card");
+  const pct = (v) => (v === undefined || v === null ? "—" : (v * 100).toFixed(1) + "%");
+  const row = (k, v) => `<div class="kv"><div>${esc(k)}</div><div>${v}</div></div>`;
+  const t = c.telemetry, e = c.evaluation, id = c.identity;
+  const card = (n, title, sub, body) => `<div class="card agent-item"><div class="agent-head"><span class="agent-num">${n}</span><div><h2>${esc(title)}</h2><div class="muted small">${esc(sub)}</div></div><span class="badge act-CORRECT_AND_RESUBMIT">In place</span></div>${body}</div>`;
+  el.innerHTML = `<h1>Agent card</h1>
+    <p class="sub">The six things a production agent needs: who owns it, what it may do, how it is tested, how it is governed, what it is doing right now, and how to run it. Filled live from this system.</p>
+    <div class="grid two">
+      ${card(1, "Named owner", "Accountable people", row("Business owner", esc(c.owner.business_owner)) + row("Technical owner", esc(c.owner.technical_owner)) + row("Operator", esc(c.owner.operator)))}
+      ${card(2, "Defined authority", "What it may and may not do",
+        row("Decisions", esc(c.authority.decides)) + row("May propose an action", esc(c.authority.may_propose)) +
+        row("Tools (all read-only)", c.authority.tools.map((x) => `<span class="chip mono">${esc(x.name)}</span>`).join(" ")) +
+        row("Closed action set", `${c.authority.actions.length} actions`) +
+        row("Human approval", `<ul class="tight">${c.authority.human_approval.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`))}
+      ${card(3, "Evaluation", "Tested against known answers",
+        row("Decisions correct", `<b>${pct(e.decision_accuracy)}</b> of ${e.labelled_denials} labelled denials`) + row("Noise filtered correctly", pct(e.noise_accuracy)) +
+        row("Unsafe actions", `<b>${e.unsafe_actions}</b>`) + row("Deadlines computed", esc(e.deadlines_computed)) + row("Test suites", esc(e.suites)) + row("Note", `<span class="muted">${esc(e.note)}</span>`))}
+      ${card(4, "Identity and governance", "Who it runs as, and the guardrails around it",
+        row("Model", esc(id.model)) + row("Guardrail", esc(id.guardrail)) + row("Service identity", esc(id.service_identity)) +
+        row("User sign-in", esc(id.user_sign_in)) + row("Queue scoping", esc(id.queue_scoping)) + row("Data location", esc(id.data_location)))}
+      ${card(5, "Telemetry", "Live since the last restart",
+        row("AI calls", `<b>${t.ai_calls}</b>${t.ai_errors ? ` · ${t.ai_errors} errors` : " · no errors"}`) +
+        row("Average AI response", t.ai_avg_ms ? (t.ai_avg_ms / 1000).toFixed(1) + " s" : "—") +
+        row("Files processed", t.files_processed) + row("Decisions on record", t.decisions.toLocaleString()) +
+        row("Approvals / overrides", `${t.approvals} / ${t.overrides}`) + row("Teams alerts", t.teams_alerts) + row("Uptime", `${t.uptime_minutes} min`))}
+      ${card(6, "Runbook", "How to run, test and hand it over",
+        `<ul class="tight">${c.runbook.map((r) => `<li><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></li>`).join("")}</ul>`)}
+    </div>`;
+}
+
+/* ------------------------------------------------------------ value & pricing */
+const TIERS = {
+  small: { label: "Small / critical access (≤50 beds)", poc: 7500, project: 35000, run: 2500, azure: 300 },
+  community: { label: "Community (50–250 beds)", poc: 12500, project: 55000, run: 4500, azure: 900 },
+  regional: { label: "Regional (250+ beds)", poc: 17500, project: 85000, run: 9500, azure: 2000 },
+};
+function value() {
+  const el = $("#view-value");
+  if (!el.dataset.ready) {
+    el.innerHTML = `<h1>Value &amp; pricing</h1>
+      <p class="sub">What denials cost one hospital, what Denial Navigator returns, and what it costs, from industry benchmarks. Change the inputs to match the hospital.</p>
+      <div class="grid value-grid">
+        <div class="card"><h2>The hospital</h2>
+          <label class="field">Hospital size<select id="v-tier">${Object.entries(TIERS).map(([k, t]) => `<option value="${k}">${esc(t.label)}</option>`).join("")}</select></label>
+          <label class="field">Net patient revenue ($M a year)<input type="number" id="v-npr" value="25" min="1" step="1"></label>
+          <label class="field">Denials a year<input type="number" id="v-den" value="4500" min="100" step="100"></label>
+          <label class="field">Denial write-offs (% of net revenue)<input type="number" id="v-wo" value="2" min="0.5" step="0.1"></label>
+          <label class="field">Cost to work one denial ($)<input type="number" id="v-cpd" value="57.23" min="1" step="0.01"></label>
+          <p class="muted small">Defaults: a typical 25-bed rural hospital. Benchmarks: HFMA (denial write-offs ≈2% of net patient revenue); Premier 2024 ($57.23 to work a denial). Recovery assumed at 15–25% of write-offs and handling effort cut by 30%; the pilot measures the real figures.</p>
+        </div>
+        <div id="v-out"></div>
+      </div>`;
+    el.querySelectorAll("input, select").forEach((x) => x.addEventListener("input", calcValue));
+    $("#v-tier").addEventListener("change", () => {
+      const d = { small: [25, 4500], community: [150, 20000], regional: [500, 40000] }[$("#v-tier").value];
+      $("#v-npr").value = d[0]; $("#v-den").value = d[1]; calcValue();
+    });
+    el.dataset.ready = 1;
+  }
+  calcValue();
+}
+function calcValue() {
+  const t = TIERS[$("#v-tier").value];
+  const npr = Math.max(0, +$("#v-npr").value) * 1e6, den = Math.max(0, +$("#v-den").value), wo = Math.max(0, +$("#v-wo").value) / 100, cpd = Math.max(0, +$("#v-cpd").value);
+  const writeOff = npr * wo, staff = den * cpd, cost = writeOff + staff;
+  const lo = writeOff * 0.15 + staff * 0.30, hi = writeOff * 0.25 + staff * 0.30;
+  const year1 = t.project + 9 * t.run + 12 * t.azure, year2 = 12 * (t.run + t.azure);
+  const monthlyNet = (v) => v / 12 - t.run - t.azure;
+  const payback = (v) => (monthlyNet(v) > 0 ? t.project / monthlyNet(v) : Infinity);
+  const k = (v) => (v >= 1e6 ? "$" + (v / 1e6).toFixed(2).replace(/\.?0+$/, "") + "M" : "$" + Math.round(v / 1e3).toLocaleString() + "K");
+  const share = Math.min(100, (100 * (lo + hi) / 2) / (cost || 1));
+  $("#v-out").innerHTML = `
+    <div class="grid kpis">
+      <div class="card kpi loss"><div class="label">Denials cost the hospital</div><div class="value">${k(cost)}</div><div class="muted small">${k(writeOff)} written off + ${k(staff)} staff time, a year</div></div>
+      <div class="card kpi win"><div class="label">Denial Navigator returns</div><div class="value">${k(lo)}–${k(hi)}</div><div class="muted small">a year: recovered denials + staff time</div></div>
+      <div class="card kpi"><div class="label">Payback after go-live</div><div class="value">${isFinite(payback(hi)) ? payback(hi).toFixed(1) + "–" + payback(lo).toFixed(1) : "—"} mo</div><div class="muted small">project fee repaid by monthly value</div></div>
+      <div class="card kpi win"><div class="label">Year-2 return</div><div class="value">${(lo / year2).toFixed(1)}–${(hi / year2).toFixed(1)}×</div><div class="muted small">value ÷ run cost (${k(year2)} a year)</div></div>
+    </div>
+    <div class="card" style="margin-bottom:16px"><h2>How much of the cost comes back</h2>
+      <div class="vbar"><span style="width:${share.toFixed(1)}%"></span></div>
+      <div class="muted small">About ${Math.round(share)}% of the ${k(cost)} a year, mid-point estimate.</div></div>
+    <div class="grid two">
+      <div class="card"><h2>What it costs: ${esc(t.label)}</h2><table><tbody>
+        <tr><td>Discovery &amp; proof of concept · weeks 1–2</td><td class="num">$${t.poc.toLocaleString()}</td></tr>
+        <tr><td class="muted small">Fully credited to the pilot if the hospital continues</td><td></td></tr>
+        <tr><td>Pilot to production · weeks 3–12</td><td class="num">$${t.project.toLocaleString()}</td></tr>
+        <tr><td>Managed run, from production · month-to-month</td><td class="num">$${t.run.toLocaleString()}/mo</td></tr>
+        <tr><td>Azure consumption (billed by Microsoft, estimate)</td><td class="num">~$${t.azure.toLocaleString()}/mo</td></tr>
+        <tr><td><b>Year 1 total</b> (POC credited, 9 months of run)</td><td class="num"><b>${k(year1)}</b></td></tr>
+        <tr><td><b>Year 2 onwards</b></td><td class="num"><b>${k(year2)} a year</b></td></tr></tbody></table></div>
+      <div class="card"><h2>Twelve weeks to production</h2>
+        <div class="tl"><div class="tl-row"><span class="tl-bar poc" style="grid-column:1/3">POC</span></div>
+          <div class="tl-row"><span class="tl-bar pilot" style="grid-column:3/9">Pilot · live in week 4</span></div>
+          <div class="tl-row"><span class="tl-bar prod" style="grid-column:9/13">Production</span></div>
+          <div class="tl-weeks">${Array.from({ length: 12 }, (_, i) => `<span>W${i + 1}</span>`).join("")}</div></div>
+        <ul class="tight small"><li><b>Before kickoff:</b> signed SOW, BAA, Azure access, 3 months of de-identified 835/837 files</li>
+          <li><b>Gate 1</b> end of week 2 · <b>Gate 2</b> end of week 8 · <b>production</b> end of week 12</li>
+          <li>The next hospital: 6–8 weeks</li></ul></div>
+    </div>`;
+}
+
 /* ------------------------------------------------------------ boot */
 (async function boot() {
   for (let i = 0; ; i++) {
@@ -322,5 +427,10 @@ async function proof() {
   $("#mode-pill").textContent = META.agent_mode === "azure" ? "AI: Azure OpenAI" : "AI: offline templates";
   $("#asof").textContent = "Demo date " + META.as_of;
   $("#build").textContent = "Version " + (META.build || "-");
+  if (META.partner && META.partner.name) {
+    const pn = $("#partner"); pn.textContent = "by " + META.partner.name; pn.hidden = false;
+    const pt = $("#partner-tag"); pt.textContent = META.partner.tagline; pt.hidden = false;
+    document.title = "Denial Navigator · " + META.partner.name;
+  }
   route();
 })();

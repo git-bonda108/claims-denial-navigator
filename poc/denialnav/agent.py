@@ -15,7 +15,9 @@ from __future__ import annotations
 import json
 import os
 import re
-from datetime import date
+import threading
+import time
+from datetime import date, datetime, timezone
 
 from .knowledge import Library, cite
 from .rules import ACTIONS
@@ -94,6 +96,23 @@ class Agent:
         self.mode = "azure" if self.client else "offline"
         self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-mini")
         self.letter_deployment = os.getenv("AZURE_OPENAI_LETTER_DEPLOYMENT", self.deployment)
+        self.stats = {"calls": 0, "errors": 0, "total_ms": 0.0, "last_call": None}
+        self._stats_lock = threading.Lock()
+
+    def _complete(self, **kwargs):
+        """One model call, timed and counted for the agent card's telemetry."""
+        t0 = time.perf_counter()
+        ok = False
+        try:
+            resp = self.client.chat.completions.create(**kwargs)
+            ok = True
+            return resp
+        finally:
+            with self._stats_lock:
+                self.stats["calls"] += 1
+                self.stats["errors"] += 0 if ok else 1
+                self.stats["total_ms"] += (time.perf_counter() - t0) * 1000
+                self.stats["last_call"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     # ------------------------------------------------------------ explanation
     def explain(self, d: dict, claim: dict, ehr: dict, payer_key: str, use_model: bool = True) -> dict:
@@ -130,7 +149,7 @@ class Agent:
         }
         notes = claim.get("notes") or ""
         user = f"{json.dumps(payload, default=str)}\n<untrusted>{notes}</untrusted>"
-        resp = self.client.chat.completions.create(
+        resp = self._complete(
             model=self.deployment, temperature=0,
             messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}],
             response_format={"type": "json_schema", "json_schema": EXPLAIN_SCHEMA})
@@ -152,7 +171,7 @@ class Agent:
                    "ehr_facts": ehr, "policy_excerpts": [c["text"] for c in cards], "as_of": d.get("remit_date")}
         schema = {"name": "action_only", "strict": True, "schema": {"type": "object", "additionalProperties": False,
                   "required": ["action"], "properties": {"action": {"type": "string", "enum": list(ACTIONS)}}}}
-        resp = self.client.chat.completions.create(
+        resp = self._complete(
             model=self.deployment, temperature=0,
             messages=[{"role": "system", "content": "You are a hospital denial specialist. Choose the single correct next action "
                        "for this adjustment. Routine contractual or patient-share adjustments that need no work are NO_ACTION "
@@ -168,7 +187,7 @@ class Agent:
         result = {"text": text, "citations": [cite(c) for c in cards], "by": "template"}
         if self.mode == "azure":
             try:
-                resp = self.client.chat.completions.create(
+                resp = self._complete(
                     model=self.letter_deployment, temperature=0.2,
                     messages=[{"role": "system", "content": SYSTEM + "\nRewrite the draft letter so it is persuasive, factual and "
                                "professional. Keep every fact, date, code and citation; add nothing that is not in the input. Plain text."},
@@ -238,7 +257,7 @@ Prairie Ridge Community Hospital
                      "use bullet lists, include claim ids, dollar amounts and due dates."},
                     {"role": "user", "content": message}]
         for _ in range(5):
-            resp = self.client.chat.completions.create(model=self.deployment, temperature=0, messages=messages, tools=CHAT_TOOLS)
+            resp = self._complete(model=self.deployment, temperature=0, messages=messages, tools=CHAT_TOOLS)
             msg = resp.choices[0].message
             if not msg.tool_calls:
                 return {"reply": msg.content, "by": f"azure:{self.deployment}"}
