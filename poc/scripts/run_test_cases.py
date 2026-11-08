@@ -290,6 +290,43 @@ def tc_explainer(app, ctx):
     return ok, " · ".join(f"{p}: HTTP {s}, {n / 1_000_000:.1f} MB" if n > 100_000 else f"{p}: HTTP {s}, {n // 1000} KB" for p, s, n, _ in res), total
 
 
+def tc_rejections(app, ctx):
+    r, dt = app.ingest("277CA_")
+    rows = []
+    for i in r.get("new_items", []):
+        ds, det, _ = app.decisions(i["claim_id"])
+        rows += [d for d in ds if d.get("source") == "277CA"]
+    letter = app.call("POST", f"/api/decisions/{rows[0]['id']}/letter")[0] if rows else {}
+    letter_status = 404 if letter.get("error") == "HTTP 404" else 200
+    smm = next((d for d in rows if d["payer_key"] == "SMM"), {})
+    ok = (r.get("status") == "PROCESSED" and (r.get("accepted"), r.get("rejected"), r.get("denials")) == (5, 3, 3)
+          and {d["queue"] for d in rows} == {"REGISTRATION", "BILLING", "CODING"}
+          and all(d["action"] == "CORRECT_AND_RESUBMIT" and d["deadline"]["type"] == "TIMELY_FILING" for d in rows)
+          and smm.get("deadline", {}).get("band") == "CRITICAL" and letter_status == 404)
+    return ok, (f"File {r.get('status')} in {dt:.1f}s from {r.get('payer')}: {r.get('claims')} claims, {r.get('accepted')} accepted, "
+                f"{r.get('rejected')} rejected, {r.get('alerts')} Teams alerts. "
+                + "; ".join(f"{d['claim_id']} 277CA {d['carc']} ${d['amount']:,.0f} → {act(d['action'])} → {d['queue'].title()}, "
+                            f"due in {d['deadline']['days_left']} days" for d in rows)
+                + f". Draft letter offered: {'no' if letter_status == 404 else 'yes'} (nothing to appeal)."), dt
+
+
+def tc_reporting(app, ctx):
+    r, dt = app.call("GET", "/api/report")
+    status, headers, body, dt2 = app.fetch("/api/report/denials.csv")
+    js = app.fetch("/static/app.js")[2].decode("utf-8", "replace")
+    rates = [t["denial_rate"] for t in r.get("trend", [])]
+    rows = body.decode("utf-8", "replace").count("\n") - 1
+    ta, rc = r.get("turnaround", {}), r.get("recovery", {})
+    ok = (len(rates) >= 3 and all(0.1 <= x <= 0.3 for x in rates) and ta.get("files_timed", 0) >= 3 and rc.get("approved_items", 0) >= 1
+          and status == 200 and rows > 100 and "TIERS" not in js and "pricing" not in js.lower())
+    trend = ", ".join(f"{t['month']} {t['denial_rate']:.1%}" for t in r.get("trend", []))
+    return ok, (f"Denial rate by month: {trend}. "
+                f"File to worklist {ta.get('file_to_worklist_seconds')}s over {ta.get('files_timed')} files; median {ta.get('median_open_age_days')} days open. "
+                f"Approved for rework: {rc.get('approved_items')} items. Expected recovery ${rc.get('expected_open', 0):,.0f} "
+                f"({(rc.get('expected_rate') or 0):.1%}). Power BI CSV: HTTP {status}, {rows} rows. Prices in the app: "
+                f"{'none' if 'TIERS' not in js else 'FOUND'}."), dt + dt2
+
+
 def tc_clean(app, ctx):
     ok, actual, dt = tc_reset(app, ctx)
     return ok, actual + " Ready for a live demo.", dt
@@ -298,9 +335,9 @@ def tc_clean(app, ctx):
 CASES = [
     ("TC-01", "Setup", "Browsers get the latest version", "Will everyone see the newest screens, not an old cached copy?",
      "1. Open the app link.\n2. Look at the bottom of the left sidebar.",
-     "Sidebar shows 'Version' followed by the code in the Actual result column. The Remittance inbox has a 'Reset demo data' button.", tc_version),
+     "Sidebar shows 'Version' followed by the code in the Actual result column. The Clearinghouse inbox has a 'Reset demo data' button.", tc_version),
     ("TC-02", "Setup", "Reset demo data", "Can we put the demo back to a clean start without IT?",
-     "1. Remittance inbox → Reset demo data → OK.\n2. Open Dashboard.",
+     "1. Clearinghouse inbox → Reset demo data → OK.\n2. Open Dashboard.",
      "Takes about 10 seconds. Dashboard: Resolved 0, Teams alerts 'No alerts yet'. Live files show a plain 'Ingest' button.", tc_reset),
     ("TC-03", "Dashboard", "Denials at a glance", "Does the dashboard show the money and urgency at a glance?",
      "1. Open Dashboard.\n2. Read the 5 tiles, the urgency bar and the 4 charts.",
@@ -310,7 +347,7 @@ CASES = [
      "1. Open Worklist.\n2. Set Queue = Coding.\n3. Set Queue = All queues, Urgency = Critical.",
      "Rows sorted by score (highest first). Coding filter shows only Coding rows. Critical filter shows only critical deadlines.", tc_worklist),
     ("TC-05", "Ingestion", "A new remittance arrives (Summit Mutual)", "Does a payer file turn into decided denials and alerts, without anyone reading it?",
-     "1. Remittance inbox → click Ingest on 835_LIVE_SMM_… once.\n2. Watch the button count 'Processing… 1s, 2s'.\n3. Open Dashboard → Teams alerts.",
+     "1. Clearinghouse inbox → click Ingest on 835_LIVE_SMM_… once.\n2. Watch the button count 'Processing… 1s, 2s'.\n3. Open Dashboard → Teams alerts.",
      "Done within about 5 seconds: '2 denials decided, 2 Teams alerts'. File gets an 'Ingested ✓' badge and tops Recent files. "
      "Alerts: High-value denial (PRH-10222, $2,840) and Deadline alert (PRH-10223).", tc_smm),
     ("TC-06", "Decision", "Prior-auth denial: explain, cite, letter, approve", "Can a biller understand a $2,840 denial and act on it in one screen?",
@@ -322,7 +359,7 @@ CASES = [
      "Correct & resubmit → Coding. Cause: billed diagnosis inconsistent with the knee injection side; the chart documents the right code. "
      "Deadline 5 days, Critical (red).", tc_deadline),
     ("TC-08", "Ingestion", "Medicare medical-necessity denial", "Does it find the real fix instead of writing the money off?",
-     "1. Remittance inbox → Ingest 835_LIVE_MCR_… once.\n2. Click PRH-10224 in the result.\n3. Read Checks and Steps.",
+     "1. Clearinghouse inbox → Ingest 835_LIVE_MCR_… once.\n2. Click PRH-10224 in the result.\n3. Read Checks and Steps.",
      "Done within about 10 seconds: 4 claims, 6 denials. PRH-10224: Correct & resubmit → Coding. ✗ billed diagnosis not covered, "
      "✓ covered diagnosis found in the chart. Deadline: reopening within 1 year.", tc_medicare),
     ("TC-09", "Decision", "Unprocessable claim (missing provider ID)", "Does it avoid wasting an appeal on a claim with no appeal rights?",
@@ -342,7 +379,7 @@ CASES = [
      "1. Assistant → 'What is due this week?'.\n2. Type 'Why was PRH-10222 denied?'.\n3. 'What is the Medicare timely filing limit?'.\n4. 'Write me a poem about cats'.",
      "Answers 1-3 with claim numbers, dollars and dates (12 months for Medicare). Politely declines the poem.", tc_assistant),
     ("TC-14", "Ingestion", "View raw file; bad file is quarantined", "Is a broken file handled safely?",
-     "1. Remittance inbox → 'view raw' on a live file.\n2. Upload any non-X12 text file in 'Upload a file'.",
+     "1. Clearinghouse inbox → 'view raw' on a live file.\n2. Upload any non-X12 text file in 'Upload a file'.",
      "Raw view shows the X12 text (starts with ISA). The bad file is QUARANTINED with a reason; nothing breaks.", tc_files),
     ("TC-15", "Quality", "Proof & quality", "Can we prove the decisions are right and safe?",
      "1. Open Proof & quality.",
@@ -350,8 +387,16 @@ CASES = [
     ("TC-16", "Media", "Explainer page, GIF and MP4", "Can people watch the story without a live demo?",
      "1. Click 'How it works ▸' in the sidebar.\n2. Play; use Download MP4 / Download GIF.",
      "Explainer plays in the browser; GIF and MP4 download and play.", tc_explainer),
-    ("TC-17", "Setup", "Leave the app clean", "Is the app ready for the next demo?",
-     "1. Remittance inbox → Reset demo data → OK.",
+    ("TC-17", "Ingestion", "Experian 277CA: front-end rejections", "Does a claim rejected before it reaches the payer get fixed before the filing deadline?",
+     "1. Clearinghouse inbox → Ingest 277CA_EXPERIAN_… once.\n2. Click the Summit Mutual claim in the result.\n3. Read Checks, Steps and Deadline.",
+     "5 accepted, 3 rejected → 3 items: subscriber not found → Registration (6 days left, Critical, Teams alert); invalid rendering NPI → Billing; "
+     "invalid diagnosis → Coding ($2,840, Teams alert). Correct & resubmit, timely filing deadline, no Draft letter button.", tc_rejections),
+    ("TC-18", "Reporting", "Reporting and the Power BI dataset", "Can the CFO see denial trends, turnaround, recovery and ROI, and take the data into Power BI?",
+     "1. Open Reporting.\n2. Hover a month in the trend.\n3. Change 'Net patient revenue'.\n4. Click Download dataset (CSV).",
+     "Steady monthly denial rate (~18%), denial rate by payer, root causes, turnaround (file → worklist in seconds), recovery, value side of ROI "
+     "($152K–$202K a year at the defaults). CSV downloads. No prices anywhere in the app.", tc_reporting),
+    ("TC-19", "Setup", "Leave the app clean", "Is the app ready for the next demo?",
+     "1. Clearinghouse inbox → Reset demo data → OK.",
      "Resolved 0, no Teams alerts, live files ready to ingest again.", tc_clean),
 ]
 

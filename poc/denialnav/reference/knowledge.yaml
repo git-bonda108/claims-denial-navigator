@@ -1,6 +1,7 @@
 # Demo knowledge library. Cards K01-K09, K15 and K16 summarise public CMS / X12 guidance
 # (summaries only - verify against the cited source before relying on them).
-# Cards K10-K14, K18 and K19 are FICTIONAL policies written for the synthetic world.
+# Card K21 summarises the public X12 277CA acknowledgement convention.
+# Cards K10-K14, K18, K19 and K22 are FICTIONAL policies written for the synthetic world.
 - id: K01
   title: Medicare timely filing limit
   source: CMS IOM 100-04 Medicare Claims Processing Manual, Ch. 1, Sec. 70; 42 CFR 424.44
@@ -175,3 +176,24 @@
     CARC 119 indicates the plan's visit or dollar maximum has been reached. Verify the visit count
     against the plan benefit. When reported as patient responsibility (PR) and the count is
     correct, the balance may be billed to the patient.
+- id: K21
+  title: Front-end rejections (277CA) are not denials
+  source: ASC X12 005010X214 Health Care Claim Acknowledgment (277CA); payer timely filing rules
+  tags: {action: [CORRECT_AND_RESUBMIT]}
+  text: >-
+    A 277CA status in category A3, A6, A7 or A8 means the claim failed front-end edits at the
+    clearinghouse or payer and never entered adjudication. There is no remittance and nothing to
+    appeal. Correct the data element named by the status and entity codes (for example A7:562:82,
+    invalid rendering provider NPI) and resubmit it as a new original claim. The timely filing limit
+    keeps running from the date of service while the claim sits rejected; keep the 277CA acceptance
+    of the corrected claim as proof of timely filing.
+- id: K22
+  title: Prairie Ridge SOP - clearinghouse rejection queue
+  source: FICTIONAL Prairie Ridge Community Hospital Patient Financial Services SOP PFS-03
+  tags: {action: [CORRECT_AND_RESUBMIT]}
+  text: >-
+    Clearinghouse rejections are worked every business day, closest timely filing date first.
+    Registration owns subscriber and eligibility rejections, Coding owns diagnosis and procedure
+    code rejections, and Billing owns provider identifier and date rejections. Fix the source record
+    in the EHR as well as the claim so the same error does not repeat, then release the corrected
+    claim to the clearinghouse and confirm the acceptance acknowledgement the next day.

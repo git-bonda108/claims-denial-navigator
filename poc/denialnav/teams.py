@@ -25,7 +25,8 @@ def card(d: dict, claim: dict, payer_name: str, app_url: str) -> dict:
     dl = d.get("deadline") or {}
     facts = [{"title": "Claim", "value": f"{d['claim_id']} · {claim['patient']['last']}, {claim['patient']['first'][0]}."},
              {"title": "Payer", "value": payer_name},
-             {"title": "Denial", "value": " ".join([f"{d['group']}-{d['carc']}", *d.get("rarcs", []), "on", d.get("code") or "claim"])},
+             ({"title": "Rejection", "value": f"277CA {d['carc']} (never reached the payer's adjudication)"} if d.get("source") == "277CA" else
+              {"title": "Denial", "value": " ".join([f"{d['group']}-{d['carc']}", *d.get("rarcs", []), "on", d.get("code") or "claim"])}),
              {"title": "Amount", "value": f"${d['amount']:,.2f}"},
              {"title": "Action", "value": f"{ACTIONS[d['action']]} → {(d.get('queue') or '').replace('_', ' ').title()}"}]
     if dl:
@@ -34,7 +35,7 @@ def card(d: dict, claim: dict, payer_name: str, app_url: str) -> dict:
     return {
         "type": "AdaptiveCard", "$schema": "http://adaptivecards.io/schemas/adaptive-card.json", "version": "1.5",
         "body": [
-            {"type": "TextBlock", "text": "⏰ Deadline alert" if urgent else "💲 High-value denial", "weight": "Bolder",
+            {"type": "TextBlock", "text": "⏰ Deadline alert" if urgent else ("💲 High-value rejection" if d.get("source") == "277CA" else "💲 High-value denial"), "weight": "Bolder",
              "size": "Medium", "color": "Attention" if urgent else "Warning"},
             {"type": "TextBlock", "text": d["root_cause"], "wrap": True},
             {"type": "FactSet", "facts": facts},

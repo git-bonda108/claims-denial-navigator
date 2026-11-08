@@ -96,7 +96,7 @@ def main() -> int:
     record("Rules", "Deadlines computed", len(with_deadline) > 100, f"{len(with_deadline)} with a due date")
 
     # 4. claim detail + AI explanation
-    top = items[0] if items else {}
+    top = next((i for i in items if i.get("group") != "277CA"), items[0] if items else {})  # an 835 denial: it has a remittance and a letter
     s, det, _ = call("GET", f"/api/claims/{top.get('claim_id')}")
     work = [d for d in det.get("decisions", []) if d.get("workable")] if isinstance(det, dict) else []
     d0 = work[0] if work else {}
@@ -122,14 +122,28 @@ def main() -> int:
     # 6. live remittance ingestion + Teams alerts
     s, files, _ = call("GET", "/api/demo-files")
     names = files.get("files", []) if isinstance(files, dict) else []
-    record("Ingestion", "Live-demo remittances available", len(names) >= 2, ", ".join(names))
+    record("Ingestion", "Clearinghouse files available", len(names) >= 3 and any(n.startswith("277CA") for n in names), ", ".join(names))
     for n in names:
         s, r, dt = call("POST", f"/api/demo-files/{n}/ingest", timeout=180)
         if not isinstance(r, dict):
             r = {"error": f"HTTP {s}: {str(r)[:60]}"}
-        ok = s == 200 and r.get("status") == "PROCESSED" and not r.get("unmatched") and r.get("unbalanced") == 0
-        record("Ingestion", f"Parse + decide {n[:22]}", ok, f"{r.get('claims')} claims, {r.get('denials')} denials, "
-               f"{r.get('alerts')} alerts in {dt:.1f}s" if ok else f"HTTP {s}: {r.get('error') or r.get('detail') or r}")
+        ok = s == 200 and r.get("status") == "PROCESSED" and not r.get("unmatched") and r.get("unbalanced", 0) == 0
+        if n.startswith("277CA"):
+            ok = ok and r.get("rejected") == 3 and r.get("accepted") == 5 and r.get("denials") == 3
+            detail = f"{r.get('claims')} claims: {r.get('accepted')} accepted, {r.get('rejected')} rejected, {r.get('alerts')} alerts in {dt:.1f}s"
+        else:
+            detail = f"{r.get('claims')} claims, {r.get('denials')} denials, {r.get('alerts')} alerts in {dt:.1f}s"
+        record("Ingestion", f"Parse + decide {n[:22]}", ok, detail if ok else f"HTTP {s}: {r.get('error') or r.get('detail') or r}")
+        if n.startswith("277CA") and ok:
+            dets = [call("GET", f"/api/claims/{i['claim_id']}")[1] for i in r.get("new_items", [])]
+            rej = [d for det in dets if isinstance(det, dict) for d in det.get("decisions", []) if d.get("source") == "277CA"]
+            record("Rejections", "277CA rejections routed, not appealed",
+                   len(rej) == 3 and {d.get("queue") for d in rej} == {"REGISTRATION", "BILLING", "CODING"}
+                   and all(d.get("action") == "CORRECT_AND_RESUBMIT" and (d.get("deadline") or {}).get("type") == "TIMELY_FILING" for d in rej),
+                   ", ".join(f"{d.get('claim_id')} {d.get('carc')} -> {d.get('queue')} ({(d.get('deadline') or {}).get('days_left')}d)" for d in rej))
+            if rej:
+                sl, _, _ = call("POST", f"/api/decisions/{rej[0].get('id')}/letter")
+                record("Rejections", "No appeal letter for a rejection", sl == 404, f"HTTP {sl}")
     s, summ2, _ = call("GET", "/api/summary")
     record("Teams", "Alert cards generated", len(summ2.get("alerts", [])) >= 2,
            f"{len(summ2.get('alerts', []))} cards; delivered to Teams: {sum(1 for a in summ2.get('alerts', []) if a.get('delivered'))}")
@@ -150,6 +164,21 @@ def main() -> int:
            f"cards {len(k_before['cards'])} -> {len(k_after['cards'])}")
     s, bad, _ = call("POST", f"/api/decisions/{it[2]['id']}/feedback", body={"verdict": "OVERRIDE", "action": "NOPE"})
     record("Feedback", "Invalid override rejected", s == 400, f"HTTP {s}")
+
+    # 7b. reporting (what the Power BI report carries) and no prices in the app
+    s, rep_, _ = call("GET", "/api/report")
+    ok = s == 200 and isinstance(rep_, dict) and rep_.get("trend") and rep_.get("turnaround", {}).get("files_timed", 0) >= 1 \
+        and rep_.get("recovery", {}).get("approved_items", 0) >= 1
+    record("Reporting", "Trend, turnaround, recovery", bool(ok),
+           f"{len(rep_.get('trend', []))} months, files timed {rep_.get('turnaround', {}).get('files_timed')}, "
+           f"approved {rep_.get('recovery', {}).get('approved_items')}" if isinstance(rep_, dict) else f"HTTP {s}")
+    s, csv_text, _ = call("GET", "/api/report/denials.csv")
+    csv_text = csv_text if isinstance(csv_text, str) else ""
+    record("Reporting", "Power BI dataset (CSV) export", s == 200 and csv_text.startswith("claim_id,") and "277CA" in csv_text,
+           f"{max(0, csv_text.count(chr(10)) - 1)} rows")
+    s, js, _ = call("GET", "/static/app.js")
+    js = js if isinstance(js, str) else ""
+    record("Reporting", "No prices in the web app", s == 200 and "TIERS" not in js and "pricing" not in js.lower(), "cost belongs in the proposal")
 
     # 8. assistant (same agent as Teams)
     for q, must in [("Top 5 by dollars", "PRH-"), ("What is due this week?", ""), (f"Why was {top.get('claim_id')} denied?", top.get("claim_id")),

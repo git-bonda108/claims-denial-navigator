@@ -91,3 +91,18 @@ def test_agent_card_and_partner_branding(svc, monkeypatch):
     assert "Centered Networks" in card["owner"]["operator"]
     monkeypatch.delenv("PARTNER_NAME")
     assert c.get("/api/meta").json()["partner"]["name"] == ""
+
+
+def test_reporting_endpoints_and_no_prices_in_the_app(svc):
+    c = TestClient(create_app(svc))
+    r = c.get("/api/report").json()
+    assert {"trend", "payers", "categories", "aging", "turnaround", "recovery", "annual_baseline"} <= set(r)
+    csv = c.get("/api/report/denials.csv")
+    assert csv.status_code == 200 and csv.headers["content-type"].startswith("text/csv")
+    assert "attachment" in csv.headers["content-disposition"] and csv.text.startswith("claim_id,")
+    meta = c.get("/api/meta").json()
+    assert meta["site"]["clearinghouse"] == "Experian Health"
+    from denialnav.api import WEB
+    js, html = (WEB / "app.js").read_text(), (WEB / "index.html").read_text()
+    assert "TIERS" not in js and "pricing" not in js.lower() and "pricing" not in html.lower()  # cost belongs in the proposal
+    assert 'data-view="reporting"' in html and "Clearinghouse inbox" in html

@@ -158,7 +158,7 @@ details summary { cursor: pointer; color: var(--slate); margin: 8px 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
 button.busy { opacity: .85; cursor: progress; }
 
-/* partner branding, agent card, value & pricing */
+/* partner branding, agent card, form fields */
 .brand-partner { font-size: 11px; font-weight: 600; color: #7fdcef; margin-top: 2px; }
 .agent-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
 .agent-head h2 { margin: 0; }
@@ -167,15 +167,31 @@ button.busy { opacity: .85; cursor: progress; }
 .kv { display: grid; grid-template-columns: 170px 1fr; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; }
 .kv > div:first-child { color: var(--slate); }
 ul.tight { margin: 0; padding-left: 18px; } ul.tight li { margin: 2px 0; }
-.value-grid { grid-template-columns: minmax(260px, 340px) 1fr; align-items: start; }
-@media (max-width: 900px) { .value-grid { grid-template-columns: 1fr; } .kv { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .kv { grid-template-columns: 1fr; } }
 label.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--slate); margin-bottom: 12px; }
 label.field input, label.field select { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink, #1f2933); background: #fff; }
-.vbar { height: 16px; border-radius: 8px; background: #e4e9ef; overflow: hidden; margin: 8px 0; }
-.vbar span { display: block; height: 100%; background: var(--win); }
-.tl { display: grid; gap: 6px; margin: 6px 0 12px; }
-.tl-row, .tl-weeks { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; }
-.tl-bar { border-radius: 6px; color: #fff; font-size: 11px; font-weight: 600; padding: 5px 8px; white-space: nowrap; overflow: hidden; }
-.tl-bar.poc { background: var(--brand-accent); } .tl-bar.pilot { background: var(--brand-secondary); } .tl-bar.prod { background: var(--brand-primary); }
-.tl-weeks span { font-size: 10px; color: var(--slate); text-align: center; }
-#v-out .kpi .value { font-size: 23px; }
+/* reporting */
+.grid > * { min-width: 0; } /* let wide tables scroll inside their card instead of widening the page */
+.site-context { margin-top: 2px; opacity: .85; line-height: 1.35; }
+.colchart { display: flex; align-items: flex-end; gap: 10px; height: 190px; padding: 18px 0 4px; border-bottom: 1px solid var(--line); margin-bottom: 30px; }
+.col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; position: relative; outline: none; }
+.col-bar { background: var(--brand-accent); border-radius: 4px 4px 0 0; min-height: 2px; }
+.col:hover .col-bar, .col:focus .col-bar { background: var(--brand-secondary); }
+.col-val { font-size: 11px; color: var(--ink); text-align: center; margin-bottom: 3px; min-height: 14px; }
+.col-lbl { position: absolute; bottom: -20px; left: 0; right: 0; text-align: center; font-size: 12px; color: var(--slate); }
+.col-sub { position: absolute; bottom: -34px; left: 0; right: 0; text-align: center; font-size: 10px; color: var(--slate); }
+.col[data-tip]:hover::after, .col[data-tip]:focus::after { content: attr(data-tip); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+  width: 220px; background: var(--brand-primary); color: #fff; font-size: 12px; padding: 8px 10px; border-radius: 8px; z-index: 5; margin-bottom: 6px; line-height: 1.35; }
+.col:first-child[data-tip]:hover::after, .col:first-child[data-tip]:focus::after { left: 0; transform: none; }
+.col:last-child[data-tip]:hover::after, .col:last-child[data-tip]:focus::after { left: auto; right: 0; transform: none; }
+details.small { margin-top: 10px; } details summary { cursor: pointer; color: var(--brand-secondary); }
+.roi-in { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.roi-in > label, .roi-in input { min-width: 0; width: 100%; }
+.roi-out { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 4px 0 10px; }
+.roi-out > div { background: #f2f6f9; border-radius: 10px; padding: 10px; }
+.roi-out .total { background: #e6f4ee; }
+.roi-out .label { font-size: 11px; color: var(--slate); text-transform: uppercase; letter-spacing: .3px; }
+.roi-out .big { font-family: var(--display); font-size: 20px; margin-top: 4px; }
+.roi-out .total .big { color: var(--win); }
+@media (max-width: 900px) { .roi-in, .roi-out { grid-template-columns: 1fr 1fr; } }

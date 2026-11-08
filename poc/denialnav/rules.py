@@ -400,3 +400,129 @@ def decide(claim: dict, rclaim: dict, ehr: dict, payer_key: str, ref: Reference,
                     "confidence": o.confidence, "needs_review": o.needs_review or o.action in ("MANUAL_REVIEW", "WRITE_OFF") or o.action in ("APPEAL_REDETERMINATION", "APPEAL_LEVEL_1"),
                     "deadline": deadline(o.action, payer, dos, remit_date, as_of), "decided_by": "RULES"})
     return out
+
+
+# ---------------------------------------------------------------- 277CA front-end rejections
+# Demo subset of the X12 claim status category (507), status (508) and entity identifier codes.
+# Verify wording against the current X12 external code lists before production use.
+STC_CATEGORY = {
+    "A0": "Acknowledgement / forwarded", "A1": "Acknowledgement / receipt", "A2": "Acknowledgement / accepted into adjudication",
+    "A3": "Acknowledgement / returned as unprocessable", "A4": "Acknowledgement / not found",
+    "A6": "Acknowledgement / rejected for missing information", "A7": "Acknowledgement / rejected for invalid information",
+    "A8": "Acknowledgement / rejected for relational field in error",
+}
+STC_STATUS = {
+    "19": "Entity acknowledges receipt of claim/encounter", "20": "Accepted for processing",
+    "21": "Missing or invalid information", "33": "Subscriber and subscriber id not found",
+    "164": "Entity's contract/member number", "187": "Date(s) of service", "254": "Principal diagnosis code",
+    "255": "Diagnosis code", "454": "Procedure code for services rendered", "562": "Entity's National Provider Identifier (NPI)",
+}
+STC_ENTITY = {"IL": "subscriber", "QC": "patient", "85": "billing provider", "82": "rendering provider", "41": "submitter",
+              "PR": "payer", "40": "receiver"}
+REJECTED = {"A3", "A6", "A7", "A8"}
+
+
+def stc_text(st: dict) -> str:
+    parts = [STC_CATEGORY.get(st["category"], st["category"]), STC_STATUS.get(st.get("code") or "", st.get("code") or "")]
+    if st.get("entity"):
+        parts.append(STC_ENTITY.get(st["entity"], st["entity"]))
+    return " · ".join(p for p in parts if p)
+
+
+def _route_277(st: dict, claim: dict, ehr: dict) -> Outcome:
+    code, entity = st.get("code") or "", st.get("entity") or ""
+    resubmit = "Release the corrected claim to the clearinghouse as a new original claim (frequency 1) and confirm a 277CA acceptance (A1/A2)"
+    if code in ("33", "164") or entity in ("IL", "QC"):
+        elig = ehr.get("eligibility_271") or {}
+        billed = claim["patient"]["member_id"]
+        found = elig.get("member_id")
+        return Outcome("CORRECT_AND_RESUBMIT", "REGISTRATION",
+                       "Payer could not find the subscriber: the member ID on the claim does not match eligibility",
+                       steps=["Run a 270/271 eligibility check for the date of service",
+                              f"Correct the member ID in registration ({billed} on the claim{', ' + found + ' on the 271' if found else ''})",
+                              resubmit],
+                       documents=["271 eligibility response", "Copy of the insurance card on file"],
+                       checks=[check("Member ID on claim", None, billed),
+                               check("Eligibility (271) on file", bool(found), f"active, member ID {found}" if found else "no 271 on file"),
+                               check("Member ID matches eligibility", found == billed if found else None,
+                                     "mismatch: registration typo" if found and found != billed else "")],
+                       knowledge=["K21", "K22", "K19"], confidence=0.95 if found else 0.8)
+    if code == "562" or entity in ("82", "85"):
+        enrolled = (ehr.get("provider_enrollment") or {})
+        npi = claim.get("rendering_npi") if entity == "82" else claim.get("billing_npi")
+        who = "rendering" if entity == "82" else "billing"
+        return Outcome("CORRECT_AND_RESUBMIT", "BILLING",
+                       f"The {who} provider NPI on the claim is invalid for this payer",
+                       steps=[f"Look up the {who} provider in NPPES and the payer enrolment record",
+                              f"Correct the NPI on the claim and in the provider master ({npi} on the claim{', ' + enrolled['npi'] + ' enrolled' if enrolled.get('npi') else ''})",
+                              resubmit],
+                       documents=["NPPES record", "Payer enrolment confirmation"],
+                       checks=[check(f"{who.title()} NPI on claim", None, str(npi)),
+                               check("NPI passes check digit", valid_npi(npi), "Luhn check on the 10-digit NPI"),
+                               check("Enrolled NPI on file", bool(enrolled.get("npi")),
+                                     f"{enrolled.get('name', '')} {enrolled.get('npi', '')}".strip() or "not on file")],
+                       knowledge=["K21", "K22"], confidence=0.95 if enrolled.get("npi") else 0.8)
+    if code in ("254", "255", "454"):
+        chart = ehr.get("chart_dx") or []
+        what = "procedure code" if code == "454" else "diagnosis code"
+        return Outcome("CORRECT_AND_RESUBMIT", "CODING",
+                       f"A {what} on the claim is invalid: not billable at the highest level of specificity",
+                       steps=[f"Review the chart and code the {what} to the highest specificity",
+                              f"Replace {', '.join(claim.get('dx', [])) if code != '454' else 'the procedure code'} with the documented code"
+                              + (f" ({', '.join(chart)} in the chart)" if chart and code != "454" else ""),
+                              resubmit],
+                       documents=["Provider documentation for the date of service"],
+                       checks=[check("Billed diagnosis", None, ", ".join(claim.get("dx", []))),
+                               check("Documented diagnosis in chart", bool(chart), ", ".join(chart) or "not found")],
+                       knowledge=["K21", "K22"], confidence=0.92 if chart else 0.75)
+    if code == "187":
+        return Outcome("CORRECT_AND_RESUBMIT", "BILLING", "The date of service on the claim was rejected",
+                       steps=["Check the service dates against the encounter", resubmit],
+                       documents=["Encounter record"], knowledge=["K21", "K22"], confidence=0.85)
+    return Outcome("MANUAL_REVIEW", "BILLING", f"Clearinghouse rejection {st['category']}:{code}:{entity} needs review",
+                   steps=["Read the rejection in the clearinghouse portal", "Correct the claim", resubmit],
+                   knowledge=["K21", "K22"], confidence=0.4, needs_review=True)
+
+
+def valid_npi(npi: str | None) -> bool | None:
+    """NPI check digit: Luhn over '80840' + the first nine digits."""
+    if not npi:
+        return None
+    if len(npi) != 10 or not npi.isdigit():
+        return False
+    digits = [int(x) for x in "80840" + npi[:9]]
+    total = 0
+    for i, dgt in enumerate(reversed(digits)):
+        if i % 2 == 0:
+            dgt *= 2
+            dgt -= 9 if dgt > 9 else 0
+        total += dgt
+    return (10 - total % 10) % 10 == int(npi[9])
+
+
+def decide_277(claim: dict, ack: dict, ehr: dict, payer_key: str, ref: Reference, ack_date: date, as_of: date) -> list[dict]:
+    """One decision per rejected status on a 277CA claim. A rejected claim was never adjudicated: there is no 835 and
+    nothing to appeal, so the action is to correct and resubmit, and the clock is timely filing from the date of service."""
+    payer = ref.payers[payer_key]
+    dos = date.fromisoformat(claim["dos"])
+    days = payer["timely_filing_days_from_dos"]
+    due = dos + timedelta(days=days)
+    left = (due - as_of).days
+    out = []
+    for st in ack["statuses"]:
+        if st["category"] not in REJECTED:
+            continue
+        o = _route_277(st, claim, ehr)
+        out.append({
+            "claim_id": claim["claim_id"], "line_no": 0, "group": "277CA",
+            "carc": ":".join(x for x in (st["category"], st.get("code"), st.get("entity")) if x),
+            "rarcs": [], "amount": ack.get("total") or claim["total_charge"], "code": None, "source": "277CA",
+            "carc_definition": stc_text(st), "rarc_definitions": {},
+            "workable": True, "action": o.action, "queue": o.queue, "root_cause": o.root_cause, "steps": o.steps,
+            "documents": o.documents, "checks": o.checks, "knowledge": o.knowledge, "confidence": o.confidence,
+            "needs_review": o.needs_review or o.action == "MANUAL_REVIEW",
+            "deadline": {"type": "TIMELY_FILING", "due_date": due.isoformat(), "days_left": left, "band": band(left),
+                         "rule": f"Timely filing: {days} days from date of service (a rejected claim does not stop the clock)"},
+            "ack": {"date": ack_date.isoformat(), "status": st, "payer_claim_id": ack.get("payer_claim_id")},
+            "decided_by": "RULES"})
+    return out

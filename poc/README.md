@@ -27,26 +27,28 @@ Without these settings, the app runs in **offline mode**. It uses deterministic 
 
 | Command | What it does |
 |---|---|
-| `python -m denialnav.datafactory --out data/synthetic` | Regenerates the dataset (1,200 claims, ~18% denials, 23 scenarios, ground-truth labels) |
+| `python -m denialnav.datafactory --out data/synthetic` | Regenerates the dataset (1,200 claims, ~18% denials, 23 denial scenarios + 3 front-end rejections, ground-truth labels, a 277CA from the clearinghouse and two live 835s) |
 | `python -m denialnav.evals` | Scores decisions against ground truth and writes `data/eval_report.md` |
 | `python -m denialnav.evals --llm-only --n 80` | AI-only baseline vs. hybrid (needs the Azure model) |
-| `pytest -q tests` | 28 tests: X12, rules, deadlines, service, agent guardrails, API, access scoping |
+| `pytest -q tests` | 36 tests: X12 (835, 837, 277CA), rules, deadlines, service, reporting, agent guardrails, API, access scoping |
 
 ## Demo script (8–10 min)
 
 1. **Dashboard**: open denied dollars, at-risk dollars, deadline urgency bar, root causes, payers and queues.
-2. **Remittance inbox**: click **Ingest** on `835_LIVE_SMM_…`. Two denials are decided in under a second, and two **Teams alerts** fire: a $2,840 CT prior-auth denial and a correction due in 5 days.
-3. **Claim PRH-10222** (CO-197): checks show the auth was on file, so the decision is to appeal. Click **Draft letter**: the letter cites the payer policy.
-4. Ingest `835_LIVE_MCR_…` and open the **CO-50 / N115 echo**. The LCD check fails on the billed diagnosis, and a covered diagnosis is found in the chart, so the decision is to correct and resubmit (reopening), with the deadline computed.
-5. **Override** any item with a reason. It becomes a precedent card that future explanations cite.
-6. **Assistant**: try *Top 10 by dollars*, *What is due this week?*, and *Why was PRH-10224 denied?*
-7. **Proof & quality**: accuracy by scenario, zero unsafe actions, the model card, and the guardrails.
+2. **Clearinghouse inbox**: click **Ingest** on `277CA_EXPERIAN_…`. Of 8 claims acknowledged, 3 were rejected before reaching the payer. They become correct-and-resubmit items for Registration, Billing and Coding, each with a timely filing deadline. One has 6 days left.
+3. Click **Ingest** on `835_LIVE_SMM_…`. Two denials are decided in under a second, and two **Teams alerts** fire: a $2,840 CT prior-auth denial and a correction due in 5 days.
+4. **Claim PRH-10222** (CO-197): checks show the auth was on file, so the decision is to appeal. Click **Draft letter**: the letter cites the payer policy.
+5. Ingest `835_LIVE_MCR_…` and open the **CO-50 / N115 echo**. The LCD check fails on the billed diagnosis, and a covered diagnosis is found in the chart, so the decision is to correct and resubmit (reopening), with the deadline computed.
+6. **Override** any item with a reason. It becomes a precedent card that future explanations cite.
+7. **Assistant**: try *Top 10 by dollars*, *What is due this week?*, and *Why was PRH-10224 denied?*
+8. **Proof & quality**: accuracy by scenario, zero unsafe actions, the model card, and the guardrails.
+9. **Reporting**: denial trend, rate by payer, root causes, turnaround, recovery and the value side of ROI, which is what the Power BI report carries. **Download dataset (CSV)** gives the same table Power BI reads from Azure SQL in a pilot.
 
 ## What is real and what is simulated
 
 | Area | Status |
 |---|---|
-| X12 835 / 837P parsing and writing | Real, deterministic, with balancing checks. Not a full implementation-guide validator. |
+| X12 835 / 837P / 277CA parsing and writing | Real, deterministic, with balancing checks. Not a full implementation-guide validator. 837I (institutional) is a pilot item. |
 | Rules, deadlines, noise filter | Real logic. Medicare windows follow CMS rules; other payers come from config in `reference/payers.yaml`. |
 | Code sets | CARC/RARC: full list (1,485 codes, MIT-licensed from the RHAIL reference). ICD-10 / HCPCS: demo subsets with our own short descriptions. |
 | NCCI / MUE / LCD | **Illustrative subsets** in CMS file format. Replace them with the quarterly CMS files and the Medicare Coverage Database for a pilot. |

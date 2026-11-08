@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -36,6 +36,11 @@ def partner() -> dict:
     """Optional partner branding for a partner-specific demo (e.g. PARTNER_NAME="Centered Networks")."""
     name = os.getenv("PARTNER_NAME", "").strip()
     return {"name": name, "tagline": os.getenv("PARTNER_TAGLINE", "Built on Microsoft Foundry · a person approves every action" if name else "")}
+
+
+def site() -> dict:
+    """Optional hospital context for a customer-specific demo (e.g. SITE_CONTEXT="25-bed critical access hospital · Epic · Experian Health")."""
+    return {"context": os.getenv("SITE_CONTEXT", "").strip(), "clearinghouse": os.getenv("CLEARINGHOUSE", "Experian Health").strip()}
 
 
 class Feedback(BaseModel):
@@ -84,7 +89,7 @@ def create_app(service: Service | None = None) -> FastAPI:
     @app.get("/api/meta")
     def meta():
         s = svc()
-        return {"actions": ACTIONS, "queues": QUEUES, "agent_mode": s.agent.mode, "as_of": s.as_of.isoformat(), "build": BUILD, "partner": partner(),
+        return {"actions": ACTIONS, "queues": QUEUES, "agent_mode": s.agent.mode, "as_of": s.as_of.isoformat(), "build": BUILD, "partner": partner(), "site": site(),
                 "manifest": {k: v for k, v in s.manifest.items() if k != "providers"},
                 "payers": {k: v["name"] for k, v in s.ref.payers.items()}}
 
@@ -181,7 +186,7 @@ def create_app(service: Service | None = None) -> FastAPI:
             "evaluation": {"decision_accuracy": ev.get("accuracy", {}).get("denial"), "noise_accuracy": ev.get("accuracy", {}).get("noise"),
                            "unsafe_actions": len(ev.get("must_not_violations", [])), "labelled_denials": ev.get("counts", {}).get("denial"),
                            "deadlines_computed": ev.get("deadlines_computed"),
-                           "suites": "30 automated tests · 17 business test cases · 49 browser checks",
+                           "suites": "36 automated tests · 19 business test cases · 60 browser checks · 42 deployment checks",
                            "note": "Synthetic data; the pilot re-scores on the hospital's own de-identified remittances"},
             "identity": {"model": f"Azure OpenAI {s.agent.deployment} in Microsoft Foundry" if azure else "Offline templates (no AI service configured)",
                          "guardrail": "Microsoft Foundry default guardrail: content filters, Prompt Shields for prompt attacks, protected material" if azure else "n/a",
@@ -200,6 +205,16 @@ def create_app(service: Service | None = None) -> FastAPI:
                         {"title": "Proof of concept plan", "url": f"{REPO_DOCS}/POC_PLAN.md"},
                         {"title": "74-second explainer", "url": "/explainer"}],
         }
+
+    @app.get("/api/report")
+    def report():
+        return svc().report()
+
+    @app.get("/api/report/denials.csv")
+    def report_csv():
+        name = f"denial_navigator_dataset_{svc().as_of:%Y%m%d}.csv"
+        return Response(svc().report_csv(), media_type="text/csv",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"', **NO_STORE})
 
     @app.get("/api/evals")
     def evals():

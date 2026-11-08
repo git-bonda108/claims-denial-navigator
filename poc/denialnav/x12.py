@@ -1,4 +1,4 @@
-"""Deterministic X12 5010 reader/writer for 835 (remittance) and 837P (professional claim).
+"""Deterministic X12 5010 reader/writer for 835 (remittance), 837P (professional claim) and 277CA (claim acknowledgement).
 
 Covers the segments the demo needs; it is not a full implementation-guide validator.
 Claims and remittances are plain dicts so they serialise straight to JSON.
@@ -124,6 +124,52 @@ def parse_835(text: str) -> dict:
     return remit
 
 
+def parse_277(text: str) -> dict:
+    """277CA / 277 claim status: one entry per claim (TRN*2 under a patient HL) with its STC statuses.
+
+    Each STC01 (and STC10/STC11) is category:status:entity, e.g. A7:562:82 = rejected for invalid
+    information, rendering provider NPI. Payer comes from the information-source NM1*PR of the loop.
+    """
+    segs, comp = tokenize(text)
+    if not any(s[0] == "ST" and _el(s, 1) == "277" for s in segs):
+        raise X12Error("Not a 277 transaction")
+    out = {"date": None, "kind": "277CA", "claims": []}
+    payer = {"payer_name": None, "payer_id": None}
+    level, claim = None, None
+    for s in segs:
+        tag = s[0]
+        if tag == "BHT":
+            out["date"] = _d8(_el(s, 4)) if _el(s, 4) else None
+            out["kind"] = "277CA" if _el(s, 6) == "TH" else "277"
+        elif tag == "HL":
+            level = _el(s, 3)
+            claim = None
+        elif tag == "NM1" and _el(s, 1) == "PR":
+            payer = {"payer_name": _el(s, 3), "payer_id": _el(s, 9)}
+        elif tag == "NM1" and _el(s, 1) == "QC" and level == "PT":
+            claim = {"claim_id": None, "patient": {"last": _el(s, 3), "first": _el(s, 4), "member_id": _el(s, 9)},
+                     "statuses": [], "status_date": None, "total": 0.0, "dos": None, "payer_claim_id": None, **payer}
+            out["claims"].append(claim)
+        elif claim is not None and tag == "TRN" and _el(s, 1) == "2":
+            claim["claim_id"] = _el(s, 2)
+        elif claim is not None and tag == "STC":
+            for i in (1, 10, 11):
+                parts = _el(s, i).split(comp)
+                if parts and parts[0]:
+                    claim["statuses"].append({"category": parts[0], "code": _el(parts, 1), "entity": _el(parts, 2)})
+            claim["status_date"] = _d8(_el(s, 2)) if _el(s, 2) else None
+            claim["total"] = _amt(_el(s, 4))
+        elif claim is not None and tag == "REF" and _el(s, 1) == "1K":
+            claim["payer_claim_id"] = _el(s, 2)
+        elif claim is not None and tag == "DTP" and _el(s, 1) == "472":
+            claim["dos"] = _d8(_el(s, 3).split("-")[0])
+    for c in out["claims"]:
+        if not c["claim_id"]:
+            raise X12Error("277 claim without a TRN*2 claim identifier")
+        c["accepted"] = all(st["category"] in ("A0", "A1", "A2") for st in c["statuses"]) if c["statuses"] else False
+    return out
+
+
 def is_balanced(claim: dict) -> bool:
     """X12 balancing rule: billed charge - paid = sum of all claim and line adjustments."""
     adj = sum(a["amount"] for a in claim["adjustments"])
@@ -219,7 +265,7 @@ def _isa(sender: str, receiver: str, when: date, control: int, func: str) -> lis
     return [
         ELEM.join(["ISA", "00", " " * 10, "00", " " * 10, "ZZ", sender.ljust(15), "ZZ", receiver.ljust(15),
                    d6, "1200", "^", "00501", str(control).zfill(9), "0", "T", COMP]),
-        ELEM.join(["GS", func, sender, receiver, d8, "1200", str(control), "X", "005010X221A1" if func == "HP" else "005010X222A1"]),
+        ELEM.join(["GS", func, sender, receiver, d8, "1200", str(control), "X", {"HP": "005010X221A1", "HN": "005010X214"}.get(func, "005010X222A1")]),
     ]
 
 
@@ -275,6 +321,51 @@ def write_835(remit: dict, control: int = 1) -> str:
     for adj in remit.get("provider_adjustments", []):
         segs.append(ELEM.join(["PLB", remit["payee_npi"], pay_date.strftime("%Y1231"),
                                f"{adj['reason']}{COMP}{adj['reference']}", _money(adj["amount"])]))
+    return _render(_close(segs, st, control))
+
+
+def write_277ca(groups: list[dict], when: date, control: int = 1, sender: str = "EXPERIANHEALTH") -> str:
+    """Claim acknowledgement (277CA) as a clearinghouse returns it: one information-source loop per payer.
+
+    groups: [{"payer_id", "payer_name", "claims": [{"claim_id", "patient", "total", "dos", "status": (cat, code, entity)}]}]
+    """
+    d8 = when.strftime("%Y%m%d")
+    segs = _isa(sender, "PRAIRIERIDGE", when, control, "HN")
+    st = len(segs)
+    segs.append(ELEM.join(["ST", "277", "0001", "005010X214"]))
+    segs.append(ELEM.join(["BHT", "0085", "08", f"ACK{control:06d}", d8, "1200", "TH"]))
+    hl = 0
+    for g in groups:
+        hl += 1; src = hl
+        segs.append(ELEM.join(["HL", str(src), "", "20", "1"]))
+        segs.append(ELEM.join(["NM1", "PR", "2", g["payer_name"], "", "", "", "", "PI", g["payer_id"]]))
+        segs.append(ELEM.join(["TRN", "1", f"{g['payer_id']}{d8}"]))
+        segs.append(ELEM.join(["DTP", "050", "D8", d8]))
+        segs.append(ELEM.join(["DTP", "009", "D8", d8]))
+        hl += 1; rcv = hl
+        segs.append(ELEM.join(["HL", str(rcv), str(src), "21", "1"]))
+        segs.append(ELEM.join(["NM1", "41", "2", "PRAIRIE RIDGE COMMUNITY HOSPITAL", "", "", "", "", "46", "PRAIRIERIDGE"]))
+        segs.append(ELEM.join(["TRN", "2", f"BATCH{control:06d}"]))
+        accepted = [c for c in g["claims"] if c["status"][0] in ("A1", "A2")]
+        rejected = [c for c in g["claims"] if c["status"][0] not in ("A1", "A2")]
+        segs.append(ELEM.join(["STC", "A1:19:PR", d8, "WQ", _money(sum(c["total"] for c in g["claims"]))]))
+        segs.append(ELEM.join(["QTY", "90", str(len(accepted))]))
+        segs.append(ELEM.join(["QTY", "AA", str(len(rejected))]))
+        hl += 1; prv = hl
+        segs.append(ELEM.join(["HL", str(prv), str(rcv), "19", "1"]))
+        segs.append(ELEM.join(["NM1", "85", "2", "PRAIRIE RIDGE COMMUNITY HOSPITAL", "", "", "", "", "XX", g.get("billing_npi", "")]))
+        for c in g["claims"]:
+            hl += 1
+            p = c["patient"]
+            segs.append(ELEM.join(["HL", str(hl), str(prv), "PT"]))
+            segs.append(ELEM.join(["NM1", "QC", "1", p["last"], p["first"], "", "", "", "MI", p["member_id"]]))
+            segs.append(ELEM.join(["TRN", "2", c["claim_id"]]))
+            cat, code, entity = c["status"]
+            segs.append(ELEM.join(["STC", COMP.join(x for x in (cat, code, entity) if x), d8, "WQ" if cat in ("A1", "A2") else "U", _money(c["total"])]))
+            if c.get("payer_claim_id"):
+                segs.append(ELEM.join(["REF", "1K", c["payer_claim_id"]]))
+            dos = c["dos"].replace("-", "")
+            segs.append(ELEM.join(["DTP", "472", "RD8", f"{dos}-{dos}"]))
     return _render(_close(segs, st, control))
 
 

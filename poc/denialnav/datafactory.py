@@ -69,6 +69,7 @@ class World:
     claims: list = field(default_factory=list)  # (claim837, remit_claim, payer_key, remit_date, live)
     labels: list = field(default_factory=list)
     ehr: dict = field(default_factory=dict)
+    front_end: list = field(default_factory=list)  # (claim837, (category, status, entity)) acknowledged by 277CA
     next_id: int = 10001
 
     # ------------------------------------------------------------ entities
@@ -519,6 +520,37 @@ def secondary_claim(w: World, dos: date, remit: date) -> None:
     w.add(c, rc, remit)
 
 
+def front_end_batch(w: World) -> None:
+    """Yesterday's claim batch as the clearinghouse acknowledged it today (277CA): most claims accepted, three
+    rejected at the front end. Rejected claims never reach adjudication, so they will never appear on an 835."""
+    sub = w.as_of - timedelta(days=1)
+    reject = lambda c, scen, st, queue, why: (w.front_end.append((c, st)), w.label(
+        c, scen, 0, "277CA", ":".join(x for x in st if x), "CORRECT_AND_RESUBMIT", queue, why,
+        must_not=APPEALS + ["WRITE_OFF", "BILL_PATIENT"]))
+    # R01 Summit Mutual ED visit held in coding for weeks: member ID typo, 6 days left of a 90-day filing window
+    p = w.patient_for("SMM")
+    good = p["member_id"]
+    typo = good[:-2] + good[-1] + good[-2] if good[-1] != good[-2] else good[:-1] + str((int(good[-1]) + 1) % 10)
+    c = w.new_claim("SMM", BUNDLES["ed"][0], ["R07.9", "R06.02"], w.as_of - timedelta(days=84), patient={**p, "member_id": typo}, submitted=sub)
+    w.ehr[c["claim_id"]] = {"eligibility_271": {"member_id": good, "status": "Active coverage", "checked": sub.isoformat()}}
+    reject(c, "R01", ("A7", "33", "IL"), "REGISTRATION", "Member ID typo at registration; payer could not find the subscriber")
+    # R02 Medicare office visit with labs: rendering NPI keyed wrong (fails the check digit)
+    c = w.new_claim("MCR", BUNDLES["office_labs"][0], ["E11.9", "I10"], w.as_of - timedelta(days=40), submitted=sub)
+    prov = next(pr for pr in w.providers if pr["npi"] == c["rendering_npi"])
+    c["rendering_npi"] = prov["npi"][:9] + str((int(prov["npi"][9]) + 3) % 10)
+    w.ehr[c["claim_id"]] = {"provider_enrollment": {"name": prov["name"], "npi": prov["npi"], "status": "Enrolled"}}
+    reject(c, "R02", ("A7", "562", "82"), "BILLING", "Rendering provider NPI keyed wrong on the claim")
+    # R03 Medicaid CT: diagnosis billed without its required 5th character
+    c = w.new_claim("MCD", ["74177"], ["K57.9"], w.as_of - timedelta(days=30), submitted=sub)
+    w.ehr[c["claim_id"]] = {"chart_dx": ["K57.92"]}
+    reject(c, "R03", ("A7", "255", ""), "CODING", "Diagnosis code not billable at the highest specificity")
+    # the rest of the batch was accepted into adjudication
+    for payer, bundle in (("MCR", "office"), ("MCR", "therapy"), ("MAP", "office"), ("PLH", "office_labs"), ("MCD", "office")):
+        codes, dxs = BUNDLES[bundle]
+        c = w.new_claim(payer, codes, w.rng.sample(dxs, k=min(2, len(dxs))), w.as_of - timedelta(days=w.rng.randint(3, 9)), submitted=sub)
+        w.front_end.append((c, ("A2", "20", "")))
+
+
 def generate(out: Path, as_of: date, n_patients: int = 300, n_claims: int = 1200,
              denial_rate: float = 0.18, seed: int = 7) -> dict:
     rng = random.Random(seed)
@@ -539,6 +571,8 @@ def generate(out: Path, as_of: date, n_patients: int = 300, n_claims: int = 1200
     # clean claims with routine adjustments only
     keys, pw = zip(*PAYER_MIX.items())
     n_clean = n_claims - len(w.claims)
+    # clean claims follow the same remittance-age mix as the denials, so the monthly denial rate is steady
+    ages = sorted((as_of - remit).days for _c, _rc, _p, remit, live in w.claims if not live)
     for i in range(n_clean):
         if i % 40 == 0:
             dos = as_of - timedelta(days=rng.randint(30, 200))
@@ -546,11 +580,12 @@ def generate(out: Path, as_of: date, n_patients: int = 300, n_claims: int = 1200
             continue
         payer = rng.choices(keys, pw)[0]
         codes, dxs = BUNDLES[rng.choice(list(BUNDLES))]
-        dos = as_of - timedelta(days=rng.randint(30, 200))
-        c = w.new_claim(payer, codes, rng.sample(dxs, k=min(2, len(dxs))), dos)
-        w.add(c, w.remit_for(c), dos + timedelta(days=rng.randint(14, 30)))
+        remit = as_of - timedelta(days=rng.choice(ages))
+        c = w.new_claim(payer, codes, rng.sample(dxs, k=min(2, len(dxs))), remit - timedelta(days=rng.randint(14, 30)))
+        w.add(c, w.remit_for(c), remit)
     for c, rc, *_ in w.claims:
         label_noise(w, c, rc)
+    front_end_batch(w)  # after everything else, so the rest of the dataset (and its claim IDs) is unchanged
     return write_outputs(w, out, seed)
 
 
@@ -570,6 +605,9 @@ def write_outputs(w: World, out: Path, seed: int) -> dict:
         else:
             rweek = remit_date - timedelta(days=remit_date.weekday())
             by_remit.setdefault((payer, rweek), []).append(rc)
+    for c, _st in w.front_end:
+        week = date.fromisoformat(c["submitted"]) - timedelta(days=date.fromisoformat(c["submitted"]).weekday())
+        by_sub.setdefault((c["_payer"], week), []).append(c)
     for (payer, week), claims in sorted(by_sub.items()):
         p = {"id": x12_payer_id(payer), "name": w.ref.payers[payer]["name"]}
         (out / "x12/837" / f"837P_{payer}_{week:%Y%m%d}.txt").write_text(x12.write_837(claims, p, week, control))
@@ -587,13 +625,23 @@ def write_outputs(w: World, out: Path, seed: int) -> dict:
                  "trace": f"EFT{control:07d}", "payment_date": w.as_of.isoformat(), "claims": rcs}
         (out / "demo_inbox" / f"835_LIVE_{payer}_{w.as_of:%Y%m%d}.txt").write_text(x12.write_835(remit, control))
         control += 1
+    if w.front_end:  # the clearinghouse's claim acknowledgement for yesterday's batch, one loop per payer
+        groups = []
+        for payer in sorted({c["_payer"] for c, _ in w.front_end}):
+            groups.append({"payer_id": x12_payer_id(payer), "payer_name": w.ref.payers[payer]["name"], "billing_npi": BILLING_NPI,
+                           "claims": [{"claim_id": c["claim_id"], "patient": c["patient"], "total": c["total_charge"], "dos": c["dos"],
+                                       "status": st} for c, st in w.front_end if c["_payer"] == payer]})
+        (out / "demo_inbox" / f"277CA_EXPERIAN_{w.as_of:%Y%m%d}.txt").write_text(x12.write_277ca(groups, w.as_of, control))
+        control += 1
     (out / "labels.json").write_text(json.dumps(w.labels, indent=1))
     (out / "ehr_context.json").write_text(json.dumps(w.ehr, indent=1))
-    denied_claims = {lb["claim_id"] for lb in w.labels if lb["workable"]}
+    denied_claims = {lb["claim_id"] for lb in w.labels if lb["workable"] and lb["group"] != "277CA"}
     manifest = {"as_of": w.as_of.isoformat(), "seed": seed, "patients": len(w.patients),
                 "claims": len(w.claims), "denied_claims": len(denied_claims),
                 "denial_rate": round(len(denied_claims) / len(w.claims), 3),
                 "live_demo_claims": sum(1 for *_x, live in w.claims if live),
+                "acknowledged_by_277ca": len(w.front_end),
+                "front_end_rejections": sum(1 for _, st in w.front_end if st[0] not in ("A1", "A2")),
                 "scenarios": sorted({lb["scenario"] for lb in w.labels}),
                 "billing_npi": BILLING_NPI, "providers": w.providers}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1))

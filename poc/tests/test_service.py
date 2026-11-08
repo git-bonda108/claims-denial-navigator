@@ -68,3 +68,43 @@ def test_teams_card_shape(svc):
     claim = svc.store.claim(d["claim_id"])["claim"]
     c = teams.card(d, claim, d["payer"], "https://app")
     assert c["type"] == "AdaptiveCard" and c["actions"][0]["url"].endswith(d["claim_id"])
+
+
+def test_277ca_rejections_become_resubmit_work_not_appeals(svc):
+    teams.OUTBOX.clear()
+    f = next((svc.data_dir / "demo_inbox").glob("277CA_*.txt"))
+    r = svc.ingest(f.name, f.read_text())
+    assert r["kind"] == "277CA" and r["status"] == "PROCESSED" and not r["unmatched"]
+    assert (r["accepted"], r["rejected"], r["denials"]) == (5, 3, 3)
+    ds = [d for i in r["new_items"] for d in svc.store.decisions(i["claim_id"])]
+    assert {d["queue"] for d in ds} == {"REGISTRATION", "BILLING", "CODING"}
+    assert all(d["action"] == "CORRECT_AND_RESUBMIT" and d["deadline"]["type"] == "TIMELY_FILING" for d in ds)
+    assert all("appeal" not in d["explanation"]["narrative"].lower().replace("nothing to appeal", "").replace("no denial to appeal", "") for d in ds)
+    smm = next(d for d in ds if d["payer_key"] == "SMM")
+    assert smm["deadline"]["days_left"] == 6 and smm["deadline"]["band"] == "CRITICAL"
+    assert len(teams.OUTBOX) == 2  # the 6-day deadline and the $2,840 CT
+    assert "error" in svc.letter(smm["id"])  # nothing to appeal
+    acc = svc.evaluate()["accuracy"]
+    assert acc["scenario:R01"] == acc["scenario:R02"] == acc["scenario:R03"] == 1.0
+    assert svc.ingest(f.name, f.read_text())["denials"] == 3  # a repeat file updates, never duplicates
+    assert sum(1 for d in svc.store.decisions(workable_only=True) if d.get("source") == "277CA") == 3
+
+
+def test_report_carries_trend_turnaround_recovery_and_csv(svc):
+    f = next((svc.data_dir / "demo_inbox").glob("277CA_*.txt"))
+    svc.ingest(f.name, f.read_text())
+    top = svc.worklist()[0]
+    svc.feedback(top["id"], "APPROVE", None, "", "biller")
+    r = svc.report()
+    assert 3 <= len(r["trend"]) <= 6 and r["trend"][0]["denied_claims"] > 0
+    assert all(t["month"] < svc.as_of.isoformat()[:7] for t in r["trend"])  # complete months only
+    assert all(0.12 <= t["denial_rate"] <= 0.26 for t in r["trend"])  # steady, realistic monthly rate
+    assert r["rejections"]["open"] == 3 - (top.get("category") == "Front-end rejection (277CA)")
+    assert r["payers"] and all(0 <= p["denial_rate"] <= 1 for p in r["payers"])
+    assert r["turnaround"]["files_timed"] == 1 and r["turnaround"]["decisions_timed"] == 1
+    assert r["recovery"]["approved_items"] == 1 and r["recovery"]["expected_open"] > 0
+    assert sum(a["items"] for a in r["aging"]) == r["turnaround"]["open_items"]
+    rows = svc.report_csv().splitlines()
+    assert rows[0].split(",")[:3] == ["claim_id", "line_no", "source"]
+    assert len(rows) - 1 == len(svc.store.decisions(workable_only=True))
+    assert any(",277CA," in row for row in rows[1:])

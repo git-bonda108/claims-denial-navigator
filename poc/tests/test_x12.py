@@ -62,3 +62,25 @@ def test_837_round_trip():
     assert out["dx"] == ["M17.11", "M25.561"] and out["auth_ref"] == "AUTH-1" and out["rendering_npi"] == "1234567893"
     assert out["lines"][0]["dx_pointers"] == [1, 2] and out["dos"] == "2026-05-01" and out["billing_taxonomy"] == "261QR1300X"
     assert "*" not in out["notes"] and "~" not in out["notes"]
+
+
+def test_277ca_round_trip_reads_rejections_and_acceptances():
+    groups = [{"payer_id": "DEMOSMM", "payer_name": "Summit Mutual", "billing_npi": "1900000013", "claims": [
+        {"claim_id": "PRH-1", "patient": {"first": "A", "last": "B", "member_id": "SM1"}, "total": 1570.0, "dos": "2026-09-07", "status": ("A7", "33", "IL")},
+        {"claim_id": "PRH-2", "patient": {"first": "C", "last": "D", "member_id": "SM2"}, "total": 165.0, "dos": "2026-11-23", "status": ("A2", "20", "")}]}]
+    text = x12.write_277ca(groups, date(2026, 11, 30), 9)
+    assert "ST*277*0001*005010X214~" in text and "GS*HN*" in text
+    r = x12.parse_277(text)
+    assert r["kind"] == "277CA" and r["date"] == "2026-11-30"
+    rej, acc = r["claims"]
+    assert rej["claim_id"] == "PRH-1" and not rej["accepted"] and rej["statuses"] == [{"category": "A7", "code": "33", "entity": "IL"}]
+    assert rej["total"] == 1570.0 and rej["dos"] == "2026-09-07" and rej["payer_id"] == "DEMOSMM"
+    assert acc["accepted"]
+
+
+def test_277_without_claim_identifier_is_rejected():
+    text = x12.write_277ca([{"payer_id": "P", "payer_name": "P", "claims": [
+        {"claim_id": "PRH-1", "patient": {"first": "A", "last": "B", "member_id": "M"}, "total": 1.0, "dos": "2026-01-01", "status": ("A7", "21", "")}]}],
+        date(2026, 1, 2)).replace("TRN*2*PRH-1~", "")
+    with pytest.raises(x12.X12Error):
+        x12.parse_277(text)
