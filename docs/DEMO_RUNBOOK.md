@@ -96,3 +96,16 @@
 
 - **Reset for the next one:** Remittance inbox → **Reset demo data**.
 - **Stop all costs once the demos are finished:** in the Azure portal, delete the resource group `rg-denial-nav-demo`.
+
+---
+
+## G. Partner demo (partner branding on)
+
+With `PARTNER_NAME` set on the Container App (for example `PARTNER_NAME="Centered Networks"`), the sidebar names the partner and two extra pages are worth showing after step 10 of section B:
+
+| # | Time | Click | Say | You should see |
+|---|---|---|---|---|
+| 10a | 1:00 | **Agent card** | "Six things a production agent needs, live from the system: owner, authority, evaluation, identity, telemetry, runbook." | Six cards marked "In place"; AI calls and response time update after you ingest a file |
+| 10b | 1:00 | **Value & pricing** → change *Hospital size* | "What denials cost this hospital, what comes back, what it costs and when it pays back." | Cost, value, price and payback recalculate for the hospital size |
+
+Turn the branding off again with `az containerapp update -n ca-dn-sq5zvttffcgfu -g rg-denial-nav-demo --remove-env-vars PARTNER_NAME -o none`.
