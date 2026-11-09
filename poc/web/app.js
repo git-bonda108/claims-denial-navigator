@@ -30,18 +30,32 @@ const actionBadge = (a) => `<span class="badge act-${esc(a)}">${esc(META.actions
 const bandBadge = (b, days) => b ? `<span class="badge band-${esc(b)}">${b === "EXPIRED" ? "Expired" : esc(days) + "d"} · ${title(b)}</span>` : `<span class="muted">—</span>`;
 const plural = (n, word) => `${n} ${word}${Number(n) === 1 ? "" : "s"}`;
 const codeLabel = (d) => (d.group === "277CA" || d.group === "277") ? `${d.group} ${d.carc}` : `${d.group}-${d.carc}`;
-const BAND_COLORS = { EXPIRED: "#7b8794", CRITICAL: "#e4572e", HIGH: "#f2a541", MEDIUM: "#f6c97a", LOW: "#2e9e6a", NONE: "#c3ccd5" };
+const BAND_COLORS = { EXPIRED: "#5f6368", CRITICAL: "#c0392b", HIGH: "#e8a33d", MEDIUM: "#f9e1b5", LOW: "#d5f0e3", NONE: "#e5e8ec" };
+const BAND_INK = { EXPIRED: "#ffffff", CRITICAL: "#ffffff", HIGH: "#3d2a00", MEDIUM: "#5c3d00", LOW: "#145a3a", NONE: "#3c4043" };
+const DEADLINE_INK = { EXPIRED: "#5f6368", CRITICAL: "#c0392b", HIGH: "#9a5b00", MEDIUM: "#8a6100", LOW: "#1a7f52" };
+const nw = (s) => `<span class="nw">${esc(s)}</span>`;
+const noDemo = (s) => String(s || "").replace(/ \(Demo.*\)/, "");
+const byLabel = (by) => !by || ["rules", "rules-router", "rules-template", "template"].includes(by) ? "the rules engine"
+  : by.startsWith("azure:") ? `Azure OpenAI (${by.slice(6)})` : by === "error" ? "—" : by;
+const factsHtml = (o) => {
+  const keys = Object.keys(o || {});
+  if (!keys.length) return '<p class="muted small">None needed for this item.</p>';
+  const val = (v) => Array.isArray(v) ? v.map(val).join(", ") : v && typeof v === "object" ? Object.entries(v).map(([k, x]) => `${esc(title(k))}: ${val(x)}`).join(" · ") : esc(v);
+  return keys.map((k) => `<div class="kv"><div>${esc(title(k))}</div><div>${val(o[k])}</div></div>`).join("");
+};
 
 /* ------------------------------------------------------------ routing */
 function route() {
   const h = location.hash.slice(1) || "dashboard";
-  const [view, arg] = h.split("/");
+  let [view, arg] = h.split("/");
   if (view === "claim") { openClaim(arg); return; }
+  const VIEWS = { dashboard, worklist, assistant, inbox, proof, agent, reporting };
+  if (!VIEWS[view]) view = "dashboard";
   lastView = view;
   $("#drawer").classList.remove("open");
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + view));
   document.querySelectorAll("nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
-  ({ dashboard, worklist, assistant, inbox, proof, agent, reporting }[view] || dashboard)(arg);
+  VIEWS[view](arg);
 }
 window.addEventListener("hashchange", route);
 
@@ -53,13 +67,13 @@ async function dashboard() {
   const totalBand = bands.reduce((a, b) => a + (s.by_band[b] || 0), 0) || 1;
   const bars = (obj, color) => {
     const max = Math.max(...Object.values(obj), 1);
-    return Object.entries(obj).map(([k, v]) => `<div class="bar-row"><div>${esc(k)}</div><div class="bar"><span style="width:${(100 * v) / max}%;background:${color}"></span></div><div class="num">${money(v)}</div></div>`).join("");
+    return Object.entries(obj).map(([k, v]) => `<div class="bar-row"><div>${esc(noDemo(k))}</div><div class="bar"><span style="width:${(100 * v) / max}%;background:${color}"></span></div><div class="num">${money(v)}</div></div>`).join("");
   };
   el.innerHTML = `
     <div class="kicker">Overview</div><h1>Denials at a glance</h1>
-    <p class="sub">As of ${esc(s.as_of)} · ${s.claims.toLocaleString()} claims with a remittance or rejection · ${(s.denial_rate * 100).toFixed(1)}% denial rate</p>
+    <p class="sub">As of ${esc(s.as_of)} · ${s.claims.toLocaleString()} claims adjudicated (835) · ${(s.denial_rate * 100).toFixed(1)}% denial rate</p>
     <div class="grid kpis">
-      <div class="card kpi loss"><div class="label">Open denied dollars</div><div class="value">${money(s.denied_amount)}</div><div class="muted small">${s.open_items} open items</div></div>
+      <div class="card kpi loss"><div class="label">Open dollars to work</div><div class="value">${money(s.denied_amount)}</div><div class="muted small">${s.open_items} open items, incl. ${s.open_rejections || 0} rejections and ${s.open_status_items || 0} claim statuses</div></div>
       <div class="card kpi risk"><div class="label">At risk ≤ 30 days</div><div class="value">${money(s.at_risk_30d)}</div><div class="muted small">${s.by_band.CRITICAL || 0} critical · ${s.by_band.HIGH || 0} high</div></div>
       <div class="card kpi win"><div class="label">Expected recovery</div><div class="value">${money(s.expected_recovery)}</div><div class="muted small">ML-weighted (synthetic history)</div></div>
       <div class="card kpi"><div class="label">Noise filtered</div><div class="value">${s.noise_filtered.toLocaleString()}</div><div class="muted small">routine adjustments, no work created</div></div>
@@ -67,22 +81,22 @@ async function dashboard() {
     </div>
     <div class="card" style="margin-bottom:16px">
       <h2>Deadline urgency (open items)</h2>
-      <div class="stack">${bands.filter((b) => s.by_band[b]).map((b) => `<div style="flex:${s.by_band[b]};background:${BAND_COLORS[b]}" title="${b}">${s.by_band[b]}</div>`).join("")}</div>
+      <div class="stack">${bands.filter((b) => s.by_band[b]).map((b) => `<div style="flex:${s.by_band[b]};background:${BAND_COLORS[b]};color:${BAND_INK[b]}" title="${b}">${s.by_band[b]}</div>`).join("")}</div>
       <div class="legend">${bands.map((b) => `<span><span class="dot" style="background:${BAND_COLORS[b]}"></span>${b === "NONE" ? "No deadline" : title(b)} (${s.by_band[b] || 0})</span>`).join("")}</div>
-      <div class="actions"><a href="#worklist/CRITICAL"><button class="warn">Work critical items</button></a></div>
+      <div class="actions"><a href="#worklist/CRITICAL"><button>Work critical items</button></a></div>
     </div>
     <div class="grid two">
-      <div class="card"><h2>Denied dollars by root cause</h2>${bars(s.by_category, "var(--loss)")}</div>
-      <div class="card"><h2>Denied dollars by payer</h2>${bars(s.by_payer, "var(--brand-secondary)")}</div>
+      <div class="card"><h2>Open dollars by root cause</h2>${bars(s.by_category, "var(--loss)")}</div>
+      <div class="card"><h2>Open dollars by payer</h2>${bars(s.by_payer, "var(--brand-secondary)")}</div>
       <div class="card"><h2>Items by team queue</h2>${Object.entries(s.by_queue).sort((a, b) => b[1] - a[1]).map(([q, n]) => `<div class="bar-row"><div>${title(q)}</div><div class="bar"><span style="width:${(100 * n) / Math.max(...Object.values(s.by_queue))}%;background:var(--brand-accent)"></span></div><div class="num">${n}</div></div>`).join("")}</div>
-      <div class="card"><h2>Teams alerts</h2>${s.alerts.length ? s.alerts.map(alertHtml).join("") : `<p class="muted">No alerts yet. Ingest a live remittance from the inbox to trigger one.</p>`}</div>
+      <div class="card" style="grid-column:1/-1"><h2>Teams alerts</h2>${s.alerts.length ? `<div class="alerts-grid">${s.alerts.map(alertHtml).join("")}</div>` : `<p class="muted">No alerts yet. Ingest a file from the Clearinghouse inbox to trigger one.</p>`}</div>
     </div>`;
 }
 function alertHtml(a) {
   const c = a.card; const facts = (c.body.find((b) => b.type === "FactSet") || { facts: [] }).facts;
   const urgent = c.body[0].text.includes("Deadline");
-  return `<div class="alert-card ${urgent ? "" : "warn"}"><b>${esc(c.body[0].text)}</b> ${a.delivered ? '<span class="chip">sent to Teams</span>' : '<span class="chip">preview · set TEAMS_WEBHOOK_URL to send</span>'}
-    <div>${esc(c.body[1].text)}</div><div class="muted small">${facts.map((f) => `${esc(f.title)}: ${esc(f.value)}`).join(" · ")}</div>
+  return `<div class="alert-card ${urgent ? "" : "warn"}"><b>${esc(c.body[0].text)}</b> ${a.delivered ? '<span class="chip">Sent to Teams</span>' : '<span class="chip">Teams preview (demo)</span>'}
+    <div>${esc(c.body[1].text)}</div><div class="muted small">${facts.map((f) => `${esc(f.title)}: ${esc(noDemo(f.value))}`).join(" · ")}</div>
     <div class="small"><a href="#claim/${esc(facts[0]?.value.split(" ")[0])}">Open claim →</a></div></div>`;
 }
 
@@ -93,12 +107,12 @@ async function worklist(band) {
     el.innerHTML = `<div class="kicker">Work queue</div><h1>Worklist</h1><p class="sub">Ranked by expected recovery × deadline urgency. Routine adjustments are already filtered out.</p>
       <div class="filters">
         <select id="f-queue"><option value="">All queues</option>${META.queues.map((q) => `<option value="${q}">${title(q)}</option>`).join("")}</select>
-        <select id="f-band"><option value="">All urgency</option>${["CRITICAL", "HIGH", "MEDIUM", "LOW", "EXPIRED"].map((b) => `<option value="${b}">${title(b)}</option>`).join("")}</select>
+        <select id="f-band"><option value="">All urgency</option>${["CRITICAL", "HIGH", "MEDIUM", "LOW", "EXPIRED", "NONE"].map((b) => `<option value="${b}">${b === "NONE" ? "No deadline" : title(b)}</option>`).join("")}</select>
         <select id="f-action"><option value="">All actions</option>${Object.entries(META.actions).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select>
         <select id="f-payer"><option value="">All payers</option>${Object.entries(META.payers).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select>
         <select id="f-status"><option value="OPEN">Open</option><option value="DONE">Resolved</option><option value="">All</option></select>
         <span id="wl-count" class="muted" style="align-self:center"></span>
-      </div><div class="card table-wrap" style="padding:0"><table><thead><tr><th>Score</th><th>Claim</th><th>Patient</th><th>Payer</th><th>Denial</th><th>Service</th><th class="num">Amount</th><th>Decision</th><th>Queue</th><th>Due</th></tr></thead><tbody id="wl"></tbody></table></div>`;
+      </div><p class="swipe-hint">Swipe sideways to see all columns →</p><div class="card table-wrap" style="padding:0"><table><thead><tr><th>Score</th><th>Claim</th><th>Patient</th><th>Payer</th><th>Reason code</th><th>Service</th><th class="num">Amount</th><th>Decision</th><th>Queue</th><th>Due</th></tr></thead><tbody id="wl"></tbody></table></div>`;
     el.querySelectorAll("select").forEach((s) => s.addEventListener("change", loadWorklist));
     el.dataset.ready = 1;
   }
@@ -115,10 +129,10 @@ async function loadWorklist() {
   $("#wl-count").textContent = `${items.length} items · ${money(items.reduce((a, r) => a + r.amount, 0))}`;
   $("#wl").innerHTML = items.map((r) => `<tr class="click" onclick="location.hash='claim/${esc(r.claim_id)}'">
     <td class="score">${r.score}</td><td class="mono">${esc(r.claim_id)}${r.needs_review ? ' <span title="needs human review">⚑</span>' : ""}</td>
-    <td>${esc(r.patient)}</td><td>${esc(r.payer.replace(/ \(Demo.*\)/, ""))}</td>
+    <td>${esc(r.patient)}</td><td>${esc(noDemo(r.payer))}</td>
     <td><span class="chip">${esc(codeLabel(r))}</span>${r.rarcs.map((x) => `<span class="chip">${esc(x)}</span>`).join("")}<div class="muted small">${esc(r.category)}</div></td>
-    <td class="mono">${esc(r.code || "")}</td><td class="num">${money2(r.amount)}</td><td>${actionBadge(r.action)}</td><td class="small">${title(r.queue)}</td>
-    <td>${bandBadge(r.band, r.days_left)}</td></tr>`).join("") || `<tr><td colspan="10" class="muted">No items match.</td></tr>`;
+    <td class="${r.code ? "mono" : "muted small"}">${esc(r.code || (r.group === "277CA" || r.group === "277" ? "Whole claim" : "Claim level"))}</td><td class="num">${money2(r.amount)}</td><td>${actionBadge(r.action)}</td><td class="small">${title(r.queue)}</td>
+    <td>${bandBadge(r.band, r.days_left)}</td></tr>`).join("") || `<tr><td colspan="10" class="muted">No items match these filters. New items arrive when you ingest a file from the Clearinghouse inbox.</td></tr>`;
 }
 
 /* ------------------------------------------------------------ claim drawer */
@@ -139,14 +153,14 @@ async function openClaim(id, explain = false) {
   }).join("");
   $("#drawer-body").innerHTML = `
     <h1 class="mono" style="font-family:var(--mono)">${esc(cl.claim_id)}</h1>
-    <p class="sub">${esc(cl.patient.last)}, ${esc(cl.patient.first)} · ${esc(c.payer)} · DOS ${esc(cl.dos)} · ${ack ? `submitted ${esc(cl.submitted)} · ${isStatus ? "claim status (277) on" : "rejected by 277CA on"} ${esc(ack.date)}` : `remit ${esc(c.remit_date || "—")} · ICN <span class="mono">${esc(rl.payer_icn || "")}</span>`}</p>
+    <p class="sub">${esc(cl.patient.last)}, ${esc(cl.patient.first)} · ${esc(c.payer)} · DOS ${nw(cl.dos)} · ${ack ? `submitted ${nw(cl.submitted)} · ${isStatus ? "claim status (277) on" : "rejected by 277CA on"} ${nw(ack.date)}` : `remit ${nw(c.remit_date || "—")} · ICN <span class="mono">${esc(rl.payer_icn || "")}</span>`}</p>
     ${work.map((d) => decisionHtml(d, c)).join("") || `<div class="card">No workable denials on this claim.</div>`}
     <div class="card" style="margin-bottom:16px"><h2>${c.remit ? "Claim lines (837) and adjudication (835)" : ack && !isStatus ? "Claim lines (837) · no 835: rejected before adjudication" : "Claim lines (837) · no 835 yet"}</h2><div class="table-wrap"><table>
       <thead><tr><th>#</th><th>Code</th><th>Description</th><th>Dx</th><th class="num">Units</th><th class="num">Billed</th><th class="num">Paid</th><th>Adjustments</th></tr></thead><tbody>${lines}</tbody></table></div>
       <div class="small muted" style="margin-top:8px">Diagnoses: ${Object.entries(c.dx).map(([k, v]) => `<span class="chip">${esc(k)}</span>${esc(v || "")}`).join(" · ")}</div>
       ${cl.notes ? `<div class="small" style="margin-top:8px"><b>Claim note (untrusted input):</b> <span class="mono">${esc(cl.notes)}</span></div>` : ""}</div>
     <div class="grid two">
-      <div class="card"><h2>EHR facts used (mock EHR)</h2><div class="ehr">${esc(JSON.stringify(c.ehr, null, 2)) || "none"}</div></div>
+      <div class="card"><h2>EHR facts used (mock EHR)</h2>${factsHtml(c.ehr)}</div>
       <div class="card"><h2>${ack ? (isStatus ? "Claim status (277)" : "Claim acknowledgement (277CA)") : "Routine adjustments (no work created)"}</h2>${ack ? `<div class="small"><span class="chip">${esc(ackItem.carc)}</span> ${esc(ackItem.carc_definition)}</div><div class="small muted" style="margin-top:6px">${isStatus ? `From the payer's claim status reply dated ${esc(ack.date)}. No 835 yet, so the team can act before the denial arrives.` : `From the clearinghouse claim acknowledgement dated ${esc(ack.date)}. A rejected claim is corrected and resubmitted; there is nothing to appeal.`}</div>` : ""}${routine.map((d) => `<div class="small"><span class="chip">${esc(d.group)}-${esc(d.carc)}</span> ${money2(d.amount)} · ${esc(d.root_cause)} → ${esc(META.actions[d.action])}</div>`).join("") || (ack ? "" : '<p class="muted">None</p>')}</div>
     </div>`;
 }
@@ -158,13 +172,13 @@ function decisionHtml(d, c) {
     <h3><span class="chip">${d.source === "277CA" ? "Whole claim · front-end rejection" : d.source === "277" ? "Whole claim · claim status" : `Line ${d.line_no} · ${esc(d.code || "")}`}</span><span class="chip">${esc(codeLabel(d))}</span>${d.rarcs.map((r) => `<span class="chip">${esc(r)}</span>`).join("")} ${actionBadge(d.action)}
       <span class="muted small">→ ${title(d.queue)}</span> <span class="badge ${d.status === "DONE" ? "act-CORRECT_AND_RESUBMIT" : ""}" style="${d.status === "DONE" ? "" : "background:#f2f4f7;color:#1b2a3a"}">${esc(d.status)}</span></h3>
     <div class="cause"><b>${esc(d.root_cause)}.</b></div>
-    <div class="narrative">${esc(ex.narrative || "")}<div class="muted small" style="margin-top:6px">Explanation by <span class="mono">${esc(ex.by || "rules")}</span>${ex.proposed_action ? " · model proposes " + actionBadge(ex.proposed_action) : ""}${ex.model_error ? " · model unavailable: " + esc(ex.model_error) : ""}</div></div>
+    <div class="narrative">${esc(ex.narrative || "")}<div class="muted small" style="margin-top:6px">Explained by ${esc(byLabel(ex.by))}${ex.proposed_action ? " · model proposes " + actionBadge(ex.proposed_action) : ""}${ex.model_error ? " · model unavailable: " + esc(ex.model_error) : ""}</div></div>
     <div class="cols">
       <div><h2>Checks</h2><ul class="checks">${d.checks.map((k) => `<li class="${k.result}">${esc(k.name)} <span class="muted small">${esc(k.detail)}</span></li>`).join("") || '<li class="INFO">Code lookup</li>'}</ul>
         <h2 style="margin-top:14px">Steps</h2><ol class="steps">${(ex.steps || d.steps).map((s) => `<li>${esc(s)}</li>`).join("")}</ol></div>
-      <div>${dl ? `<h2>Deadline</h2><div class="countdown" style="color:${BAND_COLORS[dl.band]}">${dl.days_left < 0 ? "Expired" : dl.days_left + " days"}</div><div class="small">${esc(dl.due_date)} · ${esc(dl.rule)}</div>` : `<h2>Deadline</h2><div class="muted">No filing deadline</div>`}
+      <div>${dl ? `<h2>Deadline</h2><div class="countdown" style="color:${DEADLINE_INK[dl.band] || "#1b2a3a"}">${dl.days_left < 0 ? "Expired" : dl.days_left + " days"}</div><div class="small">${nw(dl.due_date)} · ${esc(dl.rule)}</div>` : `<h2>Deadline</h2><div class="muted">No filing deadline</div>`}
         <h2 style="margin-top:14px">Documents</h2>${(ex.documents || d.documents).map((x) => `<div class="small">📎 ${esc(x)}</div>`).join("") || '<div class="muted small">None needed</div>'}
-        <h2 style="margin-top:14px">Priority</h2><div class="small">Score <b>${pr.score ?? "—"}</b> · P(recover) ${pr.p_recover ?? "—"} · expected ${money2(pr.expected_recovery)} · rule confidence ${d.confidence}</div></div>
+        <h2 style="margin-top:14px">Priority</h2><div class="small">Score <b>${pr.score ?? "—"}</b> · likelihood of recovery ${pr.p_recover == null ? "—" : Math.round(pr.p_recover * 100) + "%"} · expected ${money2(pr.expected_recovery)} · rule confidence ${Math.round(d.confidence * 100)}%</div></div>
       <div><h2>Policy citations</h2>${(ex.citations || []).map((ct) => `<div class="cite"><b>${esc(ct.id)}</b> ${esc(ct.title)}<div class="muted">${esc(ct.source)}</div>${ct.fictional ? '<div class="fiction">Fictional demo policy</div>' : ""}</div>`).join("") || '<div class="muted small">—</div>'}</div>
     </div>
     ${fb}
@@ -192,7 +206,7 @@ async function draftLetter(btn, id) {
   let r;
   try { r = await busy(btn, "Drafting…", () => api(`/api/decisions/${id}/letter`, { method: "POST" })); }
   catch (e) { $("#modal-body").innerHTML = `<h1>Draft letter</h1><p>Could not draft the letter: ${esc(e.message)}. Close this and click Draft letter again.</p>`; return; }
-  $("#modal-body").innerHTML = `<h1>Draft letter</h1><p class="sub">Generated by <span class="mono">${esc(r.by)}</span>. Review and edit before sending.</p>
+  $("#modal-body").innerHTML = `<h1>Draft letter</h1><p class="sub">Drafted by ${esc(byLabel(r.by))}. Review and edit before sending.</p>
     <textarea class="letter" id="letter-text">${esc(r.text)}</textarea>
     <div class="actions"><button onclick="navigator.clipboard.writeText($('#letter-text').value);toast('Copied')">Copy</button>
     <button class="secondary" onclick="downloadLetter()">Download .txt</button>
@@ -216,9 +230,9 @@ function assistant() {
   const el = $("#view-assistant");
   if (el.dataset.ready) return;
   el.innerHTML = `<div class="kicker">Assistant · also in Microsoft Teams</div><h1>Assistant</h1><p class="sub">The same agent is available in Microsoft Teams. It answers from the worklist, the rules and the policy library.</p>
-    <div class="chat card"><div class="msgs" id="msgs"></div>
+    <div class="chat card"><div class="msgs" id="msgs"><div class="msg bot">Ask about a claim, a deadline or a payer rule, or try one of the suggestions below.<div class="by">Denial Navigator assistant</div></div></div>
     <div class="suggest">${["Top 10 by dollars", "What is due this week?", "Give me a summary", "What is the Medicare timely filing limit?", "When can I use modifier XS?"].map((s) => `<button onclick="ask('${s}')">${s}</button>`).join("")}</div>
-    <form class="composer" onsubmit="event.preventDefault();ask($('#q').value)"><input type="text" id="q" placeholder="Ask about a claim (e.g. why was PRH-10222 denied?)" autocomplete="off"><button>Send</button></form></div>`;
+    <form class="composer" onsubmit="event.preventDefault();ask($('#q').value)"><input type="text" id="q" placeholder="e.g. Why was PRH-10222 denied?" autocomplete="off"><button>Send</button></form></div>`;
   el.dataset.ready = 1;
 }
 async function ask(text) {
@@ -231,7 +245,7 @@ async function ask(text) {
   const r = await api("/api/chat", { method: "POST", body: JSON.stringify({ message: text }) }).catch((e) => ({ reply: e.message, by: "error" }));
   $("#typing").remove(); ask.busy = false; send.disabled = false; $("#q").focus();
   const html = md(r.reply).replace(/PRH-\d{5}/g, (m) => `<a href="#claim/${m}">${m}</a>`);
-  msgs.insertAdjacentHTML("beforeend", `<div class="msg bot">${html}<div class="by">${esc(r.by)}</div></div>`); msgs.scrollTop = msgs.scrollHeight;
+  msgs.insertAdjacentHTML("beforeend", `<div class="msg bot">${html}<div class="by">Answered by ${esc(byLabel(r.by))}</div></div>`); msgs.scrollTop = msgs.scrollHeight;
 }
 
 /* ------------------------------------------------------------ inbox */
@@ -266,7 +280,7 @@ async function runIngest(btn, label, call) {
   INBOX_BUSY = true;
   const others = [...document.querySelectorAll("#view-inbox button[data-file], #reset-btn")].filter((b) => b !== btn);
   others.forEach((b) => (b.disabled = true));
-  $("#ingest-result").innerHTML = `<div class="alert-card warn"><span class="spin"></span><b>${esc(label)}</b> - reading the file, matching claims, deciding each denial and writing explanations…</div>`;
+  $("#ingest-result").innerHTML = `<div class="alert-card warn"><span class="spin"></span><b>${esc(label)}</b> - reading the file, matching claims, deciding each item and writing explanations…</div>`;
   try {
     const r = await busy(btn, "Processing…", call);
     INBOX_BUSY = false;
@@ -294,6 +308,7 @@ function showResult(r) {
     : `${r.claims} claims${r.denials !== undefined ? `, ${r.denials} denials decided, ${plural(r.alerts, "Teams alert")}` : ""}`;
   el.innerHTML = `<div class="alert-card warn" style="border-left-color:var(--win)"><b>✓ ${esc(r.kind)} processed${r.payer ? " · " + esc(r.payer) : ""}</b> - ${counts}${r.unmatched?.length ? `, ${r.unmatched.length} unmatched` : ""}
     ${(r.new_items || []).map((i) => `<div class="small"><a href="#claim/${esc(i.claim_id)}">${esc(i.claim_id)}</a> → ${esc(META.actions[i.action])} · ${money2(i.amount)}</div>`).join("")}
+    ${r.already ? `<div class="small muted" style="margin-top:6px">${plural(r.already, "item")} from this file ${r.already === 1 ? "was" : "were"} already on the worklist and kept as they were.</div>` : ""}
     ${r.alerts ? `<div class="small" style="margin-top:6px"><a href="#dashboard">See the Teams alerts on the Dashboard →</a></div>` : ""}</div>`;
   toast(r.kind === "277CA" ? `Done: ${r.rejected} rejections routed, ${plural(r.alerts, "Teams alert")}` : r.kind === "277" ? `Done: ${r.needs_action} claim statuses need action, ${plural(r.alerts, "Teams alert")}` : r.denials !== undefined ? `Done: ${r.denials} denials decided, ${plural(r.alerts, "Teams alert")}` : `Done: ${r.claims} claims loaded`);
 }
@@ -307,15 +322,18 @@ async function proof() {
   el.innerHTML = `<div class="kicker">Quality</div><h1>Proof &amp; quality</h1><p class="sub">Every synthetic denial was injected with a known correct answer. This page scores the live decisions against that ground truth.</p>
     <div class="grid kpis">
       <div class="card kpi win"><div class="label">Denial decisions correct</div><div class="value">${pct(e.accuracy.denial)}</div><div class="muted small">${e.counts.denial} labelled denials</div></div>
-      <div class="card kpi win"><div class="label">Noise correctly filtered</div><div class="value">${pct(e.accuracy.noise)}</div><div class="muted small">${e.counts.noise} routine adjustments</div></div>
-      <div class="card kpi ${e.must_not_violations.length ? "loss" : "win"}"><div class="label">Unsafe actions</div><div class="value">${e.must_not_violations.length}</div><div class="muted small">e.g. billing a patient on CO</div></div>
+      <div class="card kpi win"><div class="label">Noise correctly filtered</div><div class="value">${pct(e.accuracy.noise)}</div><div class="muted small">${(e.counts.noise || 0).toLocaleString()} routine adjustments</div></div>
+      <div class="card kpi ${e.must_not_violations.length ? "loss" : "win"}"><div class="label">Unsafe actions</div><div class="value">${e.must_not_violations.length}</div><div class="muted small">e.g. billing a patient for a contractual adjustment</div></div>
       <div class="card kpi"><div class="label">Deadlines computed</div><div class="value">${e.deadlines_computed}</div><div class="muted small">deterministic engine</div></div>
       <div class="card kpi"><div class="label">Ranking model AUC</div><div class="value">${s.model_card.test_auc}</div><div class="muted small">${esc(s.model_card.data)}</div></div>
     </div>
     <div class="grid two">
-      <div class="card"><h2>Accuracy by scenario</h2><div class="table-wrap"><table><thead><tr><th>Scenario</th><th class="num">Items</th><th class="num">Correct</th></tr></thead><tbody>
-        ${scen.map(([k, v]) => `<tr><td class="mono">${esc(k.replace("scenario:", ""))}</td><td class="num">${e.counts[k]}</td><td class="num">${pct(v)}</td></tr>`).join("")}</tbody></table></div></div>
-      <div class="card"><h2>Dataset</h2><div class="small">${Object.entries(m.manifest).filter(([k]) => k !== "scenarios").map(([k, v]) => `<div><b>${esc(title(k))}:</b> ${esc(v)}</div>`).join("")}</div>
+      <div class="card"><h2>Accuracy by scenario</h2><div class="table-wrap"><table><thead><tr><th>Scenario</th><th>What it tests</th><th class="num">Items</th><th class="num">Correct</th></tr></thead><tbody>
+        ${scen.map(([k, v]) => `<tr><td class="mono">${esc(k.replace("scenario:", ""))}</td><td class="small">${esc((e.scenario_notes || {})[k.replace("scenario:", "")] || "")}</td><td class="num">${e.counts[k]}</td><td class="num">${pct(v)}</td></tr>`).join("")}</tbody></table></div></div>
+      <div class="card"><h2>Dataset (synthetic)</h2>${[["Demo date", m.manifest.as_of], ["Claims generated", (m.manifest.claims || 0).toLocaleString()], ["Patients", m.manifest.patients],
+          ["Denial scenarios", (m.manifest.scenarios || []).length], ["Live 835 claims in the inbox", m.manifest.live_demo_claims],
+          ["Claims on the 277CA", m.manifest.acknowledged_by_277ca], ["Claim statuses on the 277", m.manifest.claim_status_replies]]
+          .filter(([, v]) => v !== undefined && v !== null).map(([k, v]) => `<div class="kv"><div>${esc(k)}</div><div>${esc(v)}</div></div>`).join("")}
         <h2 style="margin-top:16px">How to read this</h2><p class="small">${esc(e.note)}</p>
         <h2 style="margin-top:16px">Guardrails</h2><ul class="small"><li>Rules own action, queue and deadline; AI explains and drafts.</li><li>AI may only propose an action for items flagged for manual review.</li><li>Citations are limited to retrieved policy cards.</li><li>Claim free text is treated as untrusted data (see scenario S01).</li><li>Every appeal and write-off requires human approval.</li></ul></div>
     </div>`;
@@ -350,8 +368,8 @@ async function agent() {
         row("Average AI response", t.ai_avg_ms ? (t.ai_avg_ms / 1000).toFixed(1) + " s" : "—") +
         row("Files processed", t.files_processed) + row("Decisions on record", t.decisions.toLocaleString()) +
         row("Approvals / overrides", `${t.approvals} / ${t.overrides}`) + row("Teams alerts", t.teams_alerts) + row("Uptime", `${t.uptime_minutes} min`))}
-      ${card(6, "Runbook", "How to run, test and hand it over",
-        `<ul class="tight">${c.runbook.map((r) => `<li><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></li>`).join("")}</ul>`)}
+      ${card(6, "Learn more", "How it works, how well it works, what it reports",
+        `<ul class="tight">${c.runbook.map((r) => `<li><a href="${esc(r.url)}"${r.url.startsWith("/#") ? "" : ' target="_blank" rel="noopener"'}>${esc(r.title)}</a></li>`).join("")}</ul>`)}
     </div>`;
 }
 
@@ -386,32 +404,32 @@ async function reporting() {
     <p class="sub">What the hospital's Power BI report shows: denial trends, turnaround, recovery and the value side of ROI. Computed live from the same tables as the worklist. In production, Power BI reads them from Azure SQL.</p>
     <div class="grid kpis">
       <div class="card kpi"><div class="label">Denial rate · ${t.length} months</div><div class="value">${pctTxt(adj ? den / adj : null)}</div><div class="muted small">${den.toLocaleString()} of ${adj.toLocaleString()} adjudicated claims</div></div>
-      <div class="card kpi loss"><div class="label">Open denied dollars</div><div class="value">${kmoney(rc.denied_open)}</div><div class="muted small">${ta.open_items} open items</div></div>
-      <div class="card kpi risk"><div class="label">Front-end rejections (277CA)</div><div class="value">${r.rejections.open}</div><div class="muted small">${money(r.rejections.amount)} not yet at the payer</div></div>
+      <div class="card kpi loss"><div class="label">Open dollars to work</div><div class="value">${kmoney(rc.denied_open)}</div><div class="muted small">${ta.open_items} open items</div></div>
+      <div class="card kpi risk"><div class="label">Rejections (277CA)</div><div class="value">${r.rejections.open}</div><div class="muted small">${money(r.rejections.amount)} of the open dollars, not yet at the payer</div></div>
       <div class="card kpi"><div class="label">Median age, open items</div><div class="value">${ta.median_open_age_days ?? "—"} days</div><div class="muted small">since the 835 or 277CA</div></div>
       <div class="card kpi win"><div class="label">Expected recovery</div><div class="value">${kmoney(rc.expected_open)}</div><div class="muted small">${pctTxt(rc.expected_rate)} of open dollars (ML)</div></div>
     </div>
-    <div class="grid two">
+    <div class="grid two-col">
       <div class="card"><h2>Denial trend: denial rate by month</h2>
         <div class="colchart" role="img" aria-label="Denial rate by remittance month">${cols}</div>
         <div class="muted small">Denied claims ÷ claims adjudicated, by month of the 835 (scale 0–${pctTxt(axis, 0)}). Under each month: denied dollars. Complete months only. Hover a bar for the detail.</div>
-        <details class="small"><summary>Show as table</summary><div class="table-wrap"><table><thead><tr><th>Month</th><th class="num">Claims</th><th class="num">Denied</th><th class="num">Rate</th><th class="num">Denied $</th><th class="num">277CA rejections</th></tr></thead><tbody>
-          ${t.map((x) => `<tr><td>${esc(x.month)}</td><td class="num">${x.claims}</td><td class="num">${x.denied_claims}</td><td class="num">${pctTxt(x.denial_rate)}</td><td class="num">${money(x.denied_amount)}</td><td class="num">${x.rejections}</td></tr>`).join("")}</tbody></table></div></details></div>
+        <details class="small"><summary>Show as table</summary><div class="table-wrap"><table><thead><tr><th>Month</th><th class="num">Claims</th><th class="num">Denied</th><th class="num">Rate</th><th class="num">Denied $</th></tr></thead><tbody>
+          ${t.map((x) => `<tr><td>${esc(x.month)}</td><td class="num">${x.claims}</td><td class="num">${x.denied_claims}</td><td class="num">${pctTxt(x.denial_rate)}</td><td class="num">${money(x.denied_amount)}</td></tr>`).join("")}</tbody></table></div></details></div>
       <div class="card"><h2>Denial rate by payer</h2>
-        ${r.payers.map((p) => `<div class="bar-row" title="${esc(p.payer)}: ${p.denied_claims} of ${p.claims} claims denied"><div>${esc(p.payer.replace(/ \(Demo.*\)/, ""))}</div><div class="bar"><span style="width:${(100 * p.denial_rate) / maxRate}%;background:var(--brand-secondary)"></span></div><div class="num">${pctTxt(p.denial_rate)}</div></div>`).join("")}
+        ${r.payers.map((p) => `<div class="bar-row payer-row" title="${esc(p.payer)}: ${p.denied_claims} of ${p.claims} claims denied"><div>${esc(noDemo(p.payer))}<div class="muted small">${p.denied_claims} of ${p.claims} claims denied</div></div><div class="bar"><span style="width:${(100 * p.denial_rate) / maxRate}%;background:var(--brand-secondary)"></span></div><div class="num">${pctTxt(p.denial_rate)}</div></div>`).join("")}
         <div class="muted small">Denied claims ÷ claims adjudicated on an 835, per payer.</div></div>
-      <div class="card"><h2>Where the dollars are</h2><div class="table-wrap"><table><thead><tr><th>Root cause</th><th class="num">Items</th><th class="num">Denied</th><th class="num">Expected recovery</th></tr></thead><tbody>
+      <div class="card"><h2>Open items by root cause</h2><div class="table-wrap"><table><thead><tr><th>Root cause</th><th class="num">Items</th><th class="num">Open $</th><th class="num">Expected recovery</th></tr></thead><tbody>
         ${r.categories.map((c) => `<tr><td>${esc(c.category)}</td><td class="num">${c.items}</td><td class="num" title="${pctTxt(c.share, 0)} of denied dollars">${money(c.amount)}</td><td class="num">${money(c.expected_recovery)}</td></tr>`).join("")}</tbody></table></div></div>
       <div class="card"><h2>Turnaround</h2>
         <div class="kv"><div>File received → ranked worklist</div><div><b>${secs}</b> <span class="muted small">${ta.files_timed ? `average of ${ta.files_timed} live file${ta.files_timed > 1 ? "s" : ""}` : "ingest a file from the inbox to time it"}</span></div></div>
         <div class="kv"><div>Recommendation → biller decision</div><div><b>${mins}</b> <span class="muted small">${ta.decisions_timed ? `median of ${ta.decisions_timed} approval${ta.decisions_timed > 1 ? "s" : ""} or override${ta.decisions_timed > 1 ? "s" : ""}` : "timed from the first approval"}</span></div></div>
-        <h2 style="margin-top:14px">Open denied dollars by age</h2>
+        <h2 style="margin-top:14px">Open dollars by age</h2>
         ${r.aging.map((a) => `<div class="bar-row" title="${a.items} open items, ${money(a.amount)}"><div>${esc(a.bucket)}</div><div class="bar"><span style="width:${(100 * a.amount) / maxAge}%;background:var(--risk)"></span></div><div class="num">${kmoney(a.amount)}</div></div>`).join("")}</div>
       <div class="card"><h2>Recovery</h2>
-        <div class="kv"><div>Open denied dollars</div><div><b>${money(rc.denied_open)}</b></div></div>
+        <div class="kv"><div>Open dollars to work</div><div><b>${money(rc.denied_open)}</b></div></div>
         <div class="kv"><div>Expected recovery (ML, before work)</div><div><b>${money(rc.expected_open)}</b> · ${pctTxt(rc.expected_rate)}</div></div>
         <div class="kv"><div>Approved for rework by billers</div><div><b>${rc.approved_items}</b> items · ${money(rc.approved_amount)}</div></div>
-        <div class="kv"><div>Confirmed recovered</div><div><span class="muted">Pilot: matched from the follow-up 835 once the corrected claim or appeal is paid (typically 30–60+ days)</span></div></div></div>
+        <div class="kv"><div>Confirmed recovered</div><div><span class="muted">In production: matched from the follow-up 835 once the corrected claim or appeal is paid (typically 30–60+ days)</span></div></div></div>
       <div class="card"><h2>Value side of ROI</h2>
         <p class="muted small" style="margin-top:0">What denials cost a hospital this size each year, and what comes back. ROI is this value divided by the agreed cost of the engagement, which sits in the proposal. The engagement replaces these assumptions with measured figures.</p>
         <div class="roi-in">
@@ -424,10 +442,10 @@ async function reporting() {
         </div>
         <div id="r-out"></div>
         <div class="muted small">Defaults: a 25-bed critical access hospital. Assumptions: denial write-offs of about 2% of net patient revenue (measured as HFMA MAP Key AR-6); $57.23 to work a denied claim (Premier, 2025).</div></div>
-      <div class="card"><h2>Power BI dataset</h2>
+      <div class="card" style="grid-column:1/-1"><h2>Power BI dataset</h2>
         <p class="small" style="margin-top:0">One row per denial or rejection: payer, codes, root cause, amount, action, queue, deadline, urgency, ML priority, expected recovery and the biller's decision. Power BI builds the trend, turnaround, recovery and ROI pages from it.</p>
         <div class="actions"><a href="/api/report/denials.csv" download><button>Download dataset (CSV)</button></a></div>
-        <ul class="tight small"><li><b>Pilot:</b> Power BI connects to Azure SQL with the same columns, refreshed daily</li><li><b>Report pages:</b> denial trends · turnaround · recovery · ROI · drill-through to the claim</li><li>Synthetic data only, no PHI</li></ul></div>
+        <ul class="tight small"><li><b>In production:</b> Power BI connects to Azure SQL with the same columns, refreshed daily</li><li><b>Report pages:</b> denial trends · turnaround · recovery · ROI · drill-through to the claim</li><li>Synthetic data only, no PHI</li></ul></div>
     </div>`;
   el.querySelectorAll(".roi-in input").forEach((x) => x.addEventListener("input", calcRoi));
   calcRoi();

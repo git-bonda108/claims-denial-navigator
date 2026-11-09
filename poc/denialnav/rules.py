@@ -508,7 +508,7 @@ def _route_status(st: dict, claim: dict, ehr: dict, payer: dict, status_date: da
                     knowledge=["K23"], confidence=0.9 if docs else 0.75)
         left = (due - as_of).days
         return o, {"type": "RECORDS_REQUEST", "due_date": due.isoformat(), "days_left": left, "band": band(left),
-                   "rule": f"Records request: answer within {days} days of the payer's request (set per payer in Design)"}
+                   "rule": f"Records request: answer within {days} days of the payer's request (per payer)"}
     days = payer["timely_filing_days_from_dos"]
     due = dos + timedelta(days=days)
     left = (due - as_of).days

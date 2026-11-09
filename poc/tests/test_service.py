@@ -86,8 +86,29 @@ def test_277ca_rejections_become_resubmit_work_not_appeals(svc):
     assert "error" in svc.letter(smm["id"])  # nothing to appeal
     acc = svc.evaluate()["accuracy"]
     assert acc["scenario:R01"] == acc["scenario:R02"] == acc["scenario:R03"] == 1.0
-    assert svc.ingest(f.name, f.read_text())["denials"] == 3  # a repeat file updates, never duplicates
+    again = svc.ingest(f.name, f.read_text())  # a repeat file adds nothing new and never re-alerts
+    assert (again["denials"], again["already"], again["alerts"]) == (0, 3, 0)
     assert sum(1 for d in svc.store.decisions(workable_only=True) if d.get("source") == "277CA") == 3
+
+
+def test_reingest_keeps_human_decisions_and_override_to_manual_review_stays_open(svc):
+    f = next((svc.data_dir / "demo_inbox").glob("835_LIVE_SMM_*.txt"))
+    r = svc.ingest(f.name, f.read_text())
+    first, second = [svc.store.decisions(i["claim_id"], workable_only=True)[0] for i in r["new_items"][:2]]
+    assert svc.feedback(first["id"], "OVERRIDE", "WRITE_OFF", "biller decision", "biller")["status"] == "DONE"
+    assert svc.feedback(second["id"], "OVERRIDE", "MANUAL_REVIEW", "needs a closer look", "biller")["status"] == "OPEN"
+    again = svc.ingest(f.name, f.read_text())
+    assert again["denials"] == 0 and again["alerts"] == 0 and again["already"] >= 2
+    kept = svc.store.decision(first["id"])
+    assert kept["action"] == "WRITE_OFF" and kept["decided_by"] == "HUMAN" and kept["status"] == "DONE"
+
+
+def test_denial_rate_counts_835_denials_only(svc):
+    before = svc.summary()["denial_rate"]
+    for f in sorted((svc.data_dir / "demo_inbox").glob("277*.txt")):
+        svc.ingest(f.name, f.read_text())
+    s = svc.summary()
+    assert s["denial_rate"] == before and s["open_rejections"] == 3 and s["open_status_items"] == 2
 
 
 def test_report_carries_trend_turnaround_recovery_and_csv(svc):

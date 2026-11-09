@@ -50,7 +50,7 @@ h2 { font-size: 15px; margin: 0 0 12px; color: var(--brand-primary); }
 
 /* cards & grids */
 .grid { display: grid; gap: 16px; }
-.kpis { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin-bottom: 18px; }
+.kpis { grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); margin-bottom: 18px; }
 .two { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
 .kpi { border-top: 4px solid var(--brand-accent); }
@@ -73,12 +73,13 @@ h2 { font-size: 15px; margin: 0 0 12px; color: var(--brand-primary); }
 .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgba(255,255,255,.12); }
 .chip { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-family: var(--mono); background: #f2f4f7; color: var(--ink); margin: 1px 2px 1px 0; }
 .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; color: #fff; background: var(--brand-secondary); }
-.band-EXPIRED { background: #7b8794; } .band-CRITICAL { background: var(--loss); } .band-HIGH { background: var(--risk); color: #3d2a00; }
-.band-MEDIUM { background: #f9e1b5; color: #5c3d00; } .band-LOW { background: #d5f0e3; color: #145a3a; }
-.act-WRITE_OFF, .act-NO_ACTION { background: #7b8794; }
-.act-BILL_PATIENT, .act-BILL_OTHER_PAYER { background: var(--brand-accent-2); }
+.band-EXPIRED { background: #5f6368; } .band-CRITICAL { background: #c0392b; } .band-HIGH { background: #e8a33d; color: #3d2a00; }
+.band-MEDIUM { background: #f9e1b5; color: #5c3d00; } .band-LOW { background: #d5f0e3; color: #145a3a; } .band-NONE { background: #e5e8ec; color: #3c4043; }
+.act-WRITE_OFF, .act-NO_ACTION { background: #5f6368; }
+.act-BILL_PATIENT, .act-BILL_OTHER_PAYER { background: #1b2a3a; }
+.act-SEND_RECORDS { background: #0b4f8a; }
 .act-APPEAL_REDETERMINATION, .act-APPEAL_LEVEL_1, .act-OBTAIN_RETRO_AUTH { background: #c0392b; }
-.act-CORRECT_AND_RESUBMIT, .act-SUBMIT_NEW_CLAIM, .act-REOPENING { background: var(--win); }
+.act-CORRECT_AND_RESUBMIT, .act-SUBMIT_NEW_CLAIM, .act-REOPENING { background: #1a7f52; }
 .act-ROUTE_CREDENTIALING { background: var(--brand-secondary); }
 .act-MANUAL_REVIEW { background: var(--risk); color: #3d2a00; }
 
@@ -121,6 +122,15 @@ ol.steps { margin: 0; padding-left: 18px; } ol.steps li { margin: 3px 0; }
 .countdown { font-family: var(--display); font-size: 26px; }
 .narrative { background: #f5f9fe; border: 1px solid #d6e6f8; border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+.nw { white-space: nowrap; }
+.alerts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0 14px; }
+.grid.two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 1000px) { .grid.two-col { grid-template-columns: 1fr; } }
+.kpi .label { min-height: 2.6em; }
+.payer-row { margin: 12px 0; }
+.table-wrap { position: relative; }
+.swipe-hint { display: none; font-size: 12px; color: var(--slate); margin: 0 0 6px; }
+@media (max-width: 860px) { .swipe-hint { display: block; } }
 .ehr { font-size: 12px; background: #fff; border: 1px dashed var(--line); padding: 10px; border-radius: 8px; white-space: pre-wrap; font-family: var(--mono); }
 details summary { cursor: pointer; color: var(--slate); margin: 8px 0; }
 
@@ -150,6 +160,7 @@ details summary { cursor: pointer; color: var(--slate); margin: 8px 0; }
   body { flex-direction: column; }
   .side { width: 100%; height: auto; position: static; flex-direction: row; flex-wrap: wrap; gap: 10px; padding: 12px 16px; }
   .brand { margin: 0; } nav { flex-direction: row; flex-wrap: wrap; } .side-foot { display: none; }
+  .side .alif-mark { width: 100%; }
   main { padding: 16px; }
   .bar-row { grid-template-columns: 110px 1fr 70px; }
 }
@@ -221,4 +232,7 @@ h2 { color: var(--ink); }
 .col:hover .col-bar, .col:focus .col-bar { background: var(--ink); }
 .col[data-tip]:hover::after, .col[data-tip]:focus::after { background: var(--ink); }
 .toast { background: var(--ink); }
-.suggest button { background: var(--brand-pale); color: var(--brand-accent); }@media (max-width: 860px) { .side { border-right: 0; border-bottom: 1px solid var(--line); } .alif-mark { border-top: 0; padding-top: 0; margin-top: 0; } }
+.suggest button { background: var(--brand-pale); color: var(--brand-accent); }
+@media (max-width: 860px) { .side { width: 100%; border-right: 0; border-bottom: 1px solid var(--line); } .alif-mark { border-top: 0; padding-top: 0; margin-top: 0; } }
+@media (max-width: 900px) { .roi-out { grid-template-columns: 1fr 1fr; } }
+.roi-out { grid-template-columns: repeat(2, 1fr); }

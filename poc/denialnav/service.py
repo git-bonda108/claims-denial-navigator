@@ -68,6 +68,7 @@ class Service:
             self.store.wipe()
         teams.OUTBOX.clear()
         self.timings.clear()
+        self.agent.reset_stats()
         self.ref.knowledge[:] = [c for c in self.ref.knowledge if not str(c.get("id", "")).startswith("P")]
         self.library = Library(self.ref)
         self.agent.library = self.library
@@ -118,7 +119,7 @@ class Service:
             raise x12.X12Error(f"Unknown payer {remit['payer_id']}")
         fid = self.store.add_file(name, "835", "PROCESSING", "")
         remit_date = date.fromisoformat(remit["payment_date"])
-        new, alerts, orphans, unbalanced = [], [], [], 0
+        new, alerts, orphans, unbalanced, already = [], [], [], 0, 0
         payer = self.ref.payers[payer_key]
         batch, pending = [], []
         for rc in remit["claims"]:
@@ -128,7 +129,9 @@ class Service:
                 orphans.append(rc["claim_id"])
                 continue
             self.store.put_remit(rc["claim_id"], payer_key, remit_date.isoformat(), rc, fid)
-            decisions = rules.decide(stored["claim"], rc, stored["ehr"], payer_key, self.ref, remit_date, self.as_of)
+            decided = rules.decide(stored["claim"], rc, stored["ehr"], payer_key, self.ref, remit_date, self.as_of)
+            decisions = [d for d in decided if not (d["workable"] and self.store.status_of(d["claim_id"], d["line_no"], d["carc"]))]
+            already += len(decided) - len(decisions)
             expected_allowed = sum(ln.get("allowed") or 0 for ln in rc["lines"]) or None
             for d in decisions:
                 svc = self.ref.services.get(d.get("code") or "")
@@ -158,7 +161,7 @@ class Service:
             self.store.db.execute("UPDATE files SET status=?, detail=? WHERE id=?", ("PROCESSED", detail, fid))
             self.store.db.commit()
         return {"file_id": fid, "kind": "835", "status": "PROCESSED", "payer": payer["name"], "claims": len(remit["claims"]),
-                "denials": len(new), "unmatched": orphans, "unbalanced": unbalanced, "alerts": len(alerts),
+                "denials": len(new), "already": already, "unmatched": orphans, "unbalanced": unbalanced, "alerts": len(alerts),
                 "new_items": [{"claim_id": d["claim_id"], "action": d["action"], "amount": d["amount"]} for d in new]}
 
     def _explain_all(self, pending: list, notify: bool, payer_key: str | None = None) -> None:
@@ -201,6 +204,12 @@ class Service:
             payer_key = stored["payer_key"]
             payer = self.ref.payers[payer_key]
             decisions = rules.decide_277(stored["claim"], c, stored["ehr"], payer_key, self.ref, ack_date, self.as_of, kind=kind)
+            known = [d for d in decisions if self.store.status_of(d["claim_id"], d["line_no"], d["carc"])]
+            if decisions and len(known) == len(decisions):
+                counts["already"] += 1
+                counts["rejected" if kind == "277CA" else "needs_action"] += 1
+                continue
+            decisions = [d for d in decisions if d not in known]
             if not decisions:
                 counts["accepted" if kind == "277CA" else ("paid" if cats & {"F1"} else "pending")] += 1
                 continue
@@ -233,7 +242,7 @@ class Service:
             self.store.db.commit()
         return {"file_id": fid, "kind": kind, "status": "PROCESSED", "payer": f"{CLEARINGHOUSE} · {len(payers)} payers" if payers else CLEARINGHOUSE,
                 "claims": n, "accepted": counts["accepted"], "rejected": counts["rejected"], "in_process": counts["pending"],
-                "paid": counts["paid"], "needs_action": counts["needs_action"], "denials": len(new),
+                "paid": counts["paid"], "needs_action": counts["needs_action"], "denials": len(new), "already": counts["already"],
                 "unmatched": orphans, "alerts": len(alerts),
                 "new_items": [{"claim_id": d["claim_id"], "action": d["action"], "amount": d["amount"]} for d in new]}
 
@@ -257,7 +266,7 @@ class Service:
             if queue and d["queue"] != queue or action and d["action"] != action or payer and d["payer_key"] != payer:
                 continue
             dl = d.get("deadline") or {}
-            if band and dl.get("band") != band:
+            if band and (dl.get("band") or "NONE") != band:
                 continue
             rows.append({"id": d["id"], "claim_id": d["claim_id"], "line_no": d["line_no"], "patient": d["patient"],
                          "payer": d["payer"], "payer_key": d["payer_key"], "code": d.get("code"), "group": d["group"],
@@ -318,8 +327,9 @@ class Service:
             d.setdefault("history", []).append({"from": d["action"], "to": action, "by": user, "note": note})
             d["action"], d["decided_by"] = action, "HUMAN"
             self._add_precedent(d, note, user)
-        self.store.update_decision(did, d, status="DONE" if verdict in ("APPROVE", "OVERRIDE") else "OPEN")
-        return {"feedback_id": fid, "status": "DONE" if verdict != "REJECT" else "OPEN"}
+        status = "OPEN" if verdict == "REJECT" or (verdict == "OVERRIDE" and action == "MANUAL_REVIEW") else "DONE"
+        self.store.update_decision(did, d, status=status)
+        return {"feedback_id": fid, "status": status}
 
     def _add_precedent(self, d: dict, note: str, user: str) -> None:
         """Human overrides become retrievable precedents (and future ML labels)."""
@@ -334,14 +344,17 @@ class Service:
         ds = self.store.decisions()
         work = [d for d in ds if d["workable"]]
         open_ = [d for d in work if d["status"] == "OPEN"]
-        claims = {d["claim_id"] for d in ds}
-        denied_claims = {d["claim_id"] for d in work}
+        remit_ds = [d for d in ds if d.get("source") not in ("277CA", "277")]
+        claims = {d["claim_id"] for d in remit_ds}
+        denied_claims = {d["claim_id"] for d in remit_ds if d["workable"]}
         by_band = Counter((d.get("deadline") or {}).get("band", "NONE") for d in open_)
         amount_by = lambda key: {k: round(v, 2) for k, v in sorted(_sum(open_, key).items(), key=lambda kv: -kv[1])}
         return {
             "as_of": self.as_of.isoformat(), "claims": len(claims), "denied_claims": len(denied_claims),
             "denial_rate": round(len(denied_claims) / len(claims), 3) if claims else 0,
             "open_items": len(open_), "denied_amount": round(sum(d["amount"] for d in open_), 2),
+            "open_rejections": sum(1 for d in open_ if d.get("source") == "277CA"),
+            "open_status_items": sum(1 for d in open_ if d.get("source") == "277"),
             "expected_recovery": round(sum((d.get("priority") or {}).get("expected_recovery", 0) for d in open_), 2),
             "at_risk_30d": round(sum(d["amount"] for d in open_ if (d.get("deadline") or {}).get("band") in ("CRITICAL", "HIGH")), 2),
             "noise_filtered": sum(1 for d in ds if not d["workable"]),
@@ -365,8 +378,8 @@ class Service:
             t = trend.get((d.get("remit_date") or "")[:7])
             if not t:
                 continue
-            if d.get("source") == "277CA":
-                t["rejections"] += 1
+            if d.get("source") in ("277CA", "277"):
+                t["rejections"] += d.get("source") == "277CA"
                 t["rejected_amount"] += d["amount"]
             else:
                 t["denied_claims"].add(d["claim_id"])
@@ -380,13 +393,13 @@ class Service:
         adjudicated = Counter(r["payer_key"] for r in remits)
         denied_by_payer: dict = defaultdict(set)
         for d in work:
-            if d.get("source") != "277CA":
+            if d.get("source") not in ("277CA", "277"):
                 denied_by_payer[d["payer_key"]].add(d["claim_id"])
         payers = sorted(({"payer": self.ref.payers[k]["name"], "payer_key": k, "claims": n, "denied_claims": len(denied_by_payer[k]),
                           "denial_rate": round(len(denied_by_payer[k]) / n, 3)} for k, n in adjudicated.items()), key=lambda r: -r["denial_rate"])
         # root causes
         cats: dict = defaultdict(lambda: {"items": 0, "amount": 0.0, "expected": 0.0})
-        for d in work:
+        for d in [d for d in work if d["status"] == "OPEN"]:
             c = cats[d["category"]]
             c["items"] += 1
             c["amount"] += d["amount"]
@@ -494,14 +507,18 @@ class Service:
         return {"labels": len(labels), "scored": len(labels) - missing, "not_yet_ingested": missing,
                 "accuracy": acc, "counts": {k: v["n"] for k, v in res.items()}, "must_not_violations": violations,
                 "mismatches": details[:50], "deadlines_computed": len(deadlines),
-                "note": ("Rules accuracy on synthetic data is high by construction: the injector and the rule set share the same "
-                         "domain logic. Its value is regression protection. Agent-only accuracy is measured separately with "
-                         "`python -m denialnav.evals --llm-only` when an Azure OpenAI deployment is configured.")}
+                "scenario_notes": {lb["scenario"]: lb["root_cause"] for lb in reversed(labels)},
+                "note": ("Rules accuracy on synthetic data is high by construction: the denial generator and the rule set share "
+                         "the same domain logic, so this page guards against regressions. Accuracy on the hospital's own "
+                         "remittances is measured during the engagement, with the billers scoring every recommendation.")}
 
     # ------------------------------------------------------------ chat tools
     def call(self, name: str, args: dict) -> dict:
         if name == "get_worklist":
-            return {"items": self.worklist(queue=args.get("queue"), band=args.get("band"), payer=args.get("payer"))[: int(args.get("limit", 10))]}
+            items = self.worklist(queue=args.get("queue"), band=args.get("band"), payer=args.get("payer"))
+            if args.get("sort") == "amount":
+                items.sort(key=lambda r: -r["amount"])
+            return {"items": items[: int(args.get("limit", 10))]}
         if name == "get_claim":
             det = self.claim_detail(args["claim_id"].upper())
             if not det:

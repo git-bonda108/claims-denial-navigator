@@ -75,6 +75,10 @@ class Store:
             return self.db.execute("SELECT id FROM decisions WHERE claim_id=? AND line_no=? AND carc=?",
                                    (d["claim_id"], d["line_no"], d["carc"])).fetchone()[0]
 
+    def status_of(self, claim_id: str, line_no: int, carc: str) -> str | None:
+        r = self.db.execute("SELECT status FROM decisions WHERE claim_id=? AND line_no=? AND carc=?", (claim_id, line_no, carc)).fetchone()
+        return r["status"] if r else None
+
     def update_decision(self, did: int, data: dict, status: str | None = None) -> None:
         with self.lock:
             if status:

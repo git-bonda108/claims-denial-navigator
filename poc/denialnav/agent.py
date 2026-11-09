@@ -53,11 +53,16 @@ EXPLAIN_SCHEMA = {
     },
 }
 
+def code_label(d: dict) -> str:
+    """'CO-197' for 835 adjustments; '277CA A7:33:IL' / '277 P3:294' for clearinghouse and claim-status items."""
+    return f"{d['group']} {d['carc']}" if d.get("group") in ("277CA", "277") else f"{d['group']}-{d['carc']}"
+
+
 CHAT_TOOLS = [
-    {"type": "function", "function": {"name": "get_worklist", "description": "Open denial work items ranked by priority.",
+    {"type": "function", "function": {"name": "get_worklist", "description": "Open work items (denials, rejections, claim statuses) ranked by priority, or by amount with sort=amount.",
      "parameters": {"type": "object", "properties": {
          "limit": {"type": "integer"}, "queue": {"type": "string"}, "band": {"type": "string", "enum": ["EXPIRED", "CRITICAL", "HIGH", "MEDIUM", "LOW"]},
-         "payer": {"type": "string"}}, "additionalProperties": False}}},
+         "payer": {"type": "string"}, "sort": {"type": "string", "enum": ["priority", "amount"]}}, "additionalProperties": False}}},
     {"type": "function", "function": {"name": "get_claim", "description": "Full decision detail for one claim id (e.g. PRH-10423).",
      "parameters": {"type": "object", "properties": {"claim_id": {"type": "string"}}, "required": ["claim_id"], "additionalProperties": False}}},
     {"type": "function", "function": {"name": "draft_appeal", "description": "Draft an appeal or correction letter for a claim.",
@@ -103,6 +108,11 @@ class Agent:
         self.stats = {"calls": 0, "errors": 0, "total_ms": 0.0, "last_call": None}
         self._stats_lock = threading.Lock()
 
+    def reset_stats(self) -> None:
+        """Called by the demo reset, so the agent card's telemetry starts from zero again."""
+        with self._stats_lock:
+            self.stats.update(calls=0, errors=0, total_ms=0.0, last_call=None)
+
     def _complete(self, **kwargs):
         """One model call, timed and counted for the agent card's telemetry."""
         t0 = time.perf_counter()
@@ -142,7 +152,7 @@ class Agent:
             return {"narrative": narrative, "steps": d["steps"], "documents": d["documents"],
                     "citations": [cite(c) for c in cards], "proposed_action": None, "by": "rules-template"}
         if d.get("source") == "277":
-            narrative = (f"{self.ref.payers[payer_key]['name']}'s claim status reply for this {money(d['amount'])} claim reads "
+            narrative = (f"The claim status reply from {self.ref.payers[payer_key]['name']} for this {money(d['amount'])} claim reads "
                          f"{d['carc']} ({d.get('carc_definition') or 'status'}). No 835 has arrived yet, so this can be worked now. "
                          f"{d['root_cause']}. Recommended: {ACTIONS[d['action']]}"
                          f"{' by ' + d['queue'].replace('_', ' ').title() if d.get('queue') else ''}.{when}")
@@ -224,13 +234,26 @@ class Agent:
         kind = {"APPEAL_REDETERMINATION": "Request for Redetermination", "APPEAL_LEVEL_1": "Level 1 Appeal",
                 "OBTAIN_RETRO_AUTH": "Request for Retroactive Authorization"}.get(d["action"], "Corrected Claim / Reopening Request")
         basis = d["root_cause"]
+        today = date.today()
+        corrective = d["action"] in ("CORRECT_AND_RESUBMIT", "REOPENING", "SUBMIT_NEW_CLAIM")
+        fix = (d.get("steps") or [""])[0].rstrip(".")
+        body = (f"We are submitting a corrected claim for the service above. On the original claim: {basis[0].lower() + basis[1:]}. "
+                f"Correction made: {fix[0].lower() + fix[1:] if fix else 'see the enclosed documentation'}.\n\n"
+                "Please process the corrected claim and pay it according to the applicable fee schedule."
+                if corrective else
+                f"We request reconsideration of the adjustment above. {basis}."
+                + (f" The service was authorized under reference {(ehr.get('auth_on_file') or {}).get('number')} before the date of service."
+                   if (ehr.get("auth_on_file") or {}).get("number") else "")
+                + "\n\nBased on the enclosed documentation and the policy provisions listed below, we ask that the claim be "
+                  "reprocessed and paid according to the applicable fee schedule.")
+        adj = " ".join([f"{d['group']}-{d['carc']}", *d.get("rarcs", [])])
         docs = "\n".join(f"  - {x}" for x in (d["documents"] or ["Supporting documentation"]))
         refs = "\n".join(f"  - {c['title']} ({c['source']})" for c in cards)
         auth = (ehr.get("auth_on_file") or {}).get("number")
         return f"""Prairie Ridge Community Hospital
 Patient Financial Services - 100 Prairie Ridge Rd, Prairie Ridge, ND 58001
 
-{date.today():%B %d, %Y}
+{today:%B} {today.day}, {today.year}
 
 {payer['name']}
 Attn: Appeals / Provider Disputes
@@ -239,13 +262,11 @@ RE: {kind}
 Patient: {p['first']} {p['last']}    Member ID: {p['member_id']}
 Claim: {claim['claim_id']}    Payer ICN: {rclaim.get('payer_icn', '')}    Date of service: {claim['dos']}
 Service: {d.get('code') or ''} {svc}    Billed: {money(d['amount'])}
-Remittance date: {remit_date}    Adjustment: {d['group']}-{d['carc']} {' '.join(d.get('rarcs', []))}
+Remittance date: {remit_date}    Adjustment: {adj}
 
 To whom it may concern,
 
-We request reconsideration of the adjustment above. {basis}.{' The service was authorized under reference ' + auth + ' before the date of service.' if auth else ''}
-
-Based on the enclosed documentation and the policy provisions listed below, we ask that the claim be reprocessed and paid according to the applicable fee schedule.
+{body}
 
 Enclosed:
 {docs}
@@ -303,11 +324,13 @@ Prairie Ridge Community Hospital
             lines = [f"**{r['claim_id']}** - {r['payer']} - DOS {r['dos']}"]
             for d in r["decisions"]:
                 due = f", due {d['deadline']['due_date']}" if d.get("deadline") else ""
-                lines.append(f"- {d['group']}-{d['carc']} on {d.get('code')}: **{ACTIONS[d['action']]}** ({money(d['amount'])}{due}). {d['root_cause']}.")
+                lines.append(f"- {code_label(d)} on {d.get('code') or 'the whole claim'}: **{ACTIONS[d['action']]}** ({money(d['amount'])}{due}). {d['root_cause']}.")
             return {"reply": "\n".join(lines), "by": by}
         if re.search(r"\b(top|biggest|largest|highest|priority|work first|due|deadline|this week|urgent|critical|queue)\b", low):
             n = int(re.search(r"\b(\d{1,2})\b", low).group(1)) if re.search(r"\b(\d{1,2})\b", low) else 5
             args = {"limit": n}
+            if re.search(r"dollar|\$|amount|value|biggest|largest", low):
+                args["sort"] = "amount"
             if re.search(r"due|deadline|this week|urgent|critical", low):
                 args["band"] = "CRITICAL"
             for q in ("billing", "coding", "utilization", "registration", "credentialing", "patient accounts", "appeals"):
@@ -317,13 +340,13 @@ Prairie Ridge Community Hospital
             if not items and args.get("band"):
                 args["band"] = "HIGH"
                 items = tools.call("get_worklist", args)["items"]
-            rows = [f"{i + 1}. **{x['claim_id']}** {x['group']}-{x['carc']} {x.get('code') or ''} - {ACTIONS[x['action']]} - "
+            rows = [f"{i + 1}. **{x['claim_id']}** {code_label(x)}{' ' + x['code'] if x.get('code') else ''} - {ACTIONS[x['action']]} - "
                     f"{money(x['amount'])}{' - due ' + x['due_date'] + ' (' + str(x['days_left']) + 'd)' if x.get('due_date') else ''}"
                     for i, x in enumerate(items)]
             return {"reply": "\n".join(rows) if rows else "No matching open items.", "by": by}
         if re.search(r"how many|summary|overview|kpi|dashboard|at risk|total", low):
             s = tools.call("get_summary", {})
-            return {"reply": (f"- Open denials: **{s['open_items']}** worth **{money(s['denied_amount'])}**\n"
+            return {"reply": (f"- Open items (denials, rejections and claim statuses): **{s['open_items']}** worth **{money(s['denied_amount'])}**\n"
                               f"- Expected recovery: **{money(s['expected_recovery'])}**\n"
                               f"- Critical (≤7 days): **{s['by_band'].get('CRITICAL', 0)}**, expired: {s['by_band'].get('EXPIRED', 0)}\n"
                               f"- Routine adjustments filtered: {s['noise_filtered']}"), "by": by}

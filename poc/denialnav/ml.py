@@ -63,7 +63,7 @@ class PriorityModel:
         self.model.fit(X[:cut], y[:cut])
         auc = roc_auc_score(y[cut:], self.model.predict_proba(X[cut:])[:, 1])
         self.card = {"model": "HistGradientBoostingClassifier", "train_rows": cut, "test_rows": len(X) - cut,
-                     "test_auc": round(float(auc), 3), "data": "SYNTHETIC history - retrain on real outcomes in pilot",
+                     "test_auc": round(float(auc), 3), "data": "Synthetic history; retrained on the hospital's real outcomes in production",
                      "features": ["action", "payer_type", "log_amount", "days_to_deadline", "evidence_on_file", "rule_confidence"]}
 
     def score(self, decisions: list[dict], payer_type: str, expected_allowed: float) -> None:

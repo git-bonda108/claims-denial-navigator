@@ -29,7 +29,6 @@ MAX_UPLOAD = 5 * 1024 * 1024
 BUILD = hashlib.sha1(b"".join((WEB / f).read_bytes() for f in ("app.js", "styles.css") if (WEB / f).exists())).hexdigest()[:8]
 NO_STORE = {"Cache-Control": "no-store, max-age=0"}
 STARTED = time.time()
-REPO_DOCS = "https://github.com/git-bonda108/claims-denial-navigator/blob/claude/ecstatic-mayer-suc223/docs"
 
 
 def partner() -> dict:
@@ -174,7 +173,7 @@ def create_app(service: Service | None = None) -> FastAPI:
         azure = s.agent.mode == "azure"
         keyless = azure and not os.getenv("AZURE_OPENAI_API_KEY")
         return {
-            "owner": {"business_owner": os.getenv("AGENT_OWNER", "Revenue-cycle director, [Hospital]"),
+            "owner": {"business_owner": os.getenv("AGENT_OWNER", "Revenue-cycle director at the hospital"),
                       "technical_owner": os.getenv("AGENT_TECH_OWNER", "Alif Consulting delivery lead"),
                       "operator": os.getenv("AGENT_OPERATOR", (partner()["name"] or "Partner") + " Managed AgentOps")},
             "authority": {"tools": [{"name": t["function"]["name"], "purpose": t["function"]["description"], "access": "read-only"} for t in CHAT_TOOLS],
@@ -187,8 +186,8 @@ def create_app(service: Service | None = None) -> FastAPI:
             "evaluation": {"decision_accuracy": ev.get("accuracy", {}).get("denial"), "noise_accuracy": ev.get("accuracy", {}).get("noise"),
                            "unsafe_actions": len(ev.get("must_not_violations", [])), "labelled_denials": ev.get("counts", {}).get("denial"),
                            "deadlines_computed": ev.get("deadlines_computed"),
-                           "suites": "38 automated tests · 20 business test cases · 65 browser checks · 43 deployment checks",
-                           "note": "Synthetic data; the pilot re-scores on the hospital's own de-identified remittances"},
+                           "suites": "40 automated tests · 20 business test cases · 72 browser checks · 43 deployment checks",
+                           "note": "Synthetic data; during the engagement it is re-scored on the hospital's own de-identified remittances"},
             "identity": {"model": f"Azure OpenAI {s.agent.deployment} in Microsoft Foundry" if azure else "Offline templates (no AI service configured)",
                          "guardrail": "Microsoft Foundry default guardrail: content filters, Prompt Shields for prompt attacks, protected material" if azure else "n/a",
                          "service_identity": "Managed identity, no API keys" if keyless else ("API key" if azure else "n/a"),
@@ -201,10 +200,10 @@ def create_app(service: Service | None = None) -> FastAPI:
                           "approvals": sum(f["verdict"] == "APPROVE" for f in fb), "overrides": sum(f["verdict"] == "OVERRIDE" for f in fb),
                           "teams_alerts": len(teams.OUTBOX), "uptime_minutes": round((time.time() - STARTED) / 60),
                           "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds")},
-            "runbook": [{"title": "Demo runbook", "url": f"{REPO_DOCS}/DEMO_RUNBOOK.md"},
-                        {"title": "Test cases and expected outputs", "url": f"{REPO_DOCS}/TEST_CASES.md"},
-                        {"title": "Proof of concept plan", "url": f"{REPO_DOCS}/POC_PLAN.md"},
-                        {"title": "74-second explainer", "url": "/explainer"}],
+            "runbook": [{"title": "How it works: 74-second explainer", "url": "/explainer"},
+                        {"title": "Proof and quality: accuracy on labelled cases", "url": "/#proof"},
+                        {"title": "Reporting: trends, turnaround, recovery and ROI", "url": "/#reporting"},
+                        {"title": "Power BI dataset (CSV)", "url": "/api/report/denials.csv"}],
         }
 
     @app.get("/api/report")
