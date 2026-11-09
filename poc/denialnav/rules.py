@@ -392,7 +392,7 @@ def decide(claim: dict, rclaim: dict, ehr: dict, payer_key: str, ref: Reference,
         handler = HANDLERS.get(adj["carc"])
         if handler is None:
             o = Outcome("MANUAL_REVIEW", "BILLING",
-                        f"Adjustment reason {adj['carc']} {'(' + base['carc_definition'][:80] + ')' if base['carc_definition'] else 'is not a recognised CARC'}",
+                        f"Adjustment reason {adj['carc']} {'(' + base['carc_definition'][:80] + ')' if base['carc_definition'] else 'is not a recognized CARC'}",
                         steps=["Review the remittance and payer policy"], knowledge=["K09"], confidence=0.3, needs_review=True)
         else:
             o = handler(ctx)

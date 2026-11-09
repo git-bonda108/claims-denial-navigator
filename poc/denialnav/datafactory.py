@@ -567,12 +567,12 @@ def status_batch(w: World) -> None:
                     must_not=APPEALS + ["WRITE_OFF", "BILL_PATIENT"])
         return c
     # T01 Medicare Advantage ED visit: the payer has pended it for the records (answer within 30 days of the request)
-    add("MAP", "ed", 30, ("P3", "294", ""), 4, dx=["R07.9", "R06.02"],
-        ehr={"chart_docs": ["ED physician note", "Chest x-ray report", "ECG tracing and interpretation"]},
+    add("MAP", None, 30, ("P3", "294", ""), 4, codes=["99284", "71046"], dx=["R07.9", "R06.02"],
+        ehr={"chart_docs": ["ED physician note", "Chest x-ray report"]},
         scen=("T01", "SEND_RECORDS", "BILLING", "Payer holding the claim for supporting documentation"))
-    # T02 commercial CT: denied on the status reply (not eligible on the date of service); another payer covers the patient
+    # T02 commercial MRI: denied on the status reply (not eligible on the date of service); another payer covers the patient
     p = w.patient_for("SMM")
-    add("PLH", None, 35, ("F2", "88", "IL"), 2, codes=["74177"], dx=["R10.9"],
+    add("PLH", None, 35, ("F2", "88", "IL"), 2, codes=["72148"], dx=["M54.50"],
         ehr={"eligibility_271_other": {"payer": w.ref.payers["SMM"]["name"], "member_id": p["member_id"], "status": "Active coverage"}},
         scen=("T02", "BILL_OTHER_PAYER", "REGISTRATION", "Patient not eligible with this payer on the date of service; other coverage active"))
     # the rest are simply in process, or paid with the 835 still to come

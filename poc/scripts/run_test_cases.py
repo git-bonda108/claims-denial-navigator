@@ -413,7 +413,7 @@ CASES = [
     ("TC-18", "Ingestion", "Experian 277 claim status: act before the 835", "Do claims the payer has pended or denied get worked before the 835 arrives?",
      "1. Clearinghouse inbox → Ingest 277_STATUS_EXPERIAN_… once.\n2. Open the Heartland Advantage claim (records requested).\n3. Open the Plains Health CT (not eligible).",
      "6 statuses: 3 in process, 1 paid, 2 need action. P3:294 → Send requested records → Billing, records due in 26 days. "
-     "F2:88:IL ($2,840) → Bill other payer → Registration, Teams alert. No Draft letter button (no 835 yet).", tc_claim_status),
+     "F2:88:IL ($2,450 MRI) → Bill other payer → Registration, Teams alert. No Draft letter button (no 835 yet).", tc_claim_status),
     ("TC-19", "Reporting", "Reporting and the Power BI dataset", "Can the CFO see denial trends, turnaround, recovery and ROI, and take the data into Power BI?",
      "1. Open Reporting.\n2. Hover a month in the trend.\n3. Change 'Net patient revenue'.\n4. Click Download dataset (CSV).",
      "Steady monthly denial rate (~18%), denial rate by payer, root causes, turnaround (file → worklist in seconds), recovery, value side of ROI "

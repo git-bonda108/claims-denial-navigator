@@ -119,8 +119,8 @@ def test_277_claim_status_turns_pended_and_denied_claims_into_work_before_the_83
     ds = {d["carc"]: d for i in r["new_items"] for d in svc.store.decisions(i["claim_id"])}
     rec, elig = ds["P3:294"], ds["F2:88:IL"]
     assert (rec["action"], rec["queue"], rec["deadline"]["type"]) == ("SEND_RECORDS", "BILLING", "RECORDS_REQUEST")
-    assert (elig["action"], elig["queue"]) == ("BILL_OTHER_PAYER", "REGISTRATION") and elig["amount"] == 2840.0
+    assert (elig["action"], elig["queue"]) == ("BILL_OTHER_PAYER", "REGISTRATION") and elig["amount"] == 2450.0
     assert all("adjusted" not in d["explanation"]["narrative"] for d in ds.values())
-    assert "error" in svc.letter(rec["id"]) and len(teams.OUTBOX) == 1  # the $2,840 CT
+    assert "error" in svc.letter(rec["id"]) and len(teams.OUTBOX) == 1  # the $2,450 MRI
     acc = svc.evaluate()["accuracy"]
     assert acc["scenario:T01"] == acc["scenario:T02"] == 1.0

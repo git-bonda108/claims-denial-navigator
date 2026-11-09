@@ -28,6 +28,7 @@ async function busy(btn, label, fn) {
 window.addEventListener("unhandledrejection", (e) => { console.error(e.reason); e.preventDefault(); });
 const actionBadge = (a) => `<span class="badge act-${esc(a)}">${esc(META.actions[a] || a)}</span>`;
 const bandBadge = (b, days) => b ? `<span class="badge band-${esc(b)}">${b === "EXPIRED" ? "Expired" : esc(days) + "d"} · ${title(b)}</span>` : `<span class="muted">—</span>`;
+const plural = (n, word) => `${n} ${word}${Number(n) === 1 ? "" : "s"}`;
 const codeLabel = (d) => (d.group === "277CA" || d.group === "277") ? `${d.group} ${d.carc}` : `${d.group}-${d.carc}`;
 const BAND_COLORS = { EXPIRED: "#7b8794", CRITICAL: "#e4572e", HIGH: "#f2a541", MEDIUM: "#f6c97a", LOW: "#2e9e6a", NONE: "#c3ccd5" };
 
@@ -288,13 +289,13 @@ async function resetDemo(btn) {
 function showResult(r) {
   const el = $("#ingest-result");
   if (r.status !== "PROCESSED") { el.innerHTML = `<div class="alert-card"><b>Quarantined:</b> ${esc(r.error)}</div>`; toast("File quarantined - see the reason in the inbox"); return; }
-  const counts = r.kind === "277CA" ? `${r.claims} claims acknowledged: ${r.accepted} accepted, ${r.rejected} rejected → ${r.denials} work items, ${r.alerts} Teams alerts`
-    : r.kind === "277" ? `${r.claims} claim statuses: ${r.in_process} in process, ${r.paid} paid, ${r.needs_action} need action now → ${r.denials} work items, ${r.alerts} Teams alerts`
-    : `${r.claims} claims${r.denials !== undefined ? `, ${r.denials} denials decided, ${r.alerts} Teams alerts` : ""}`;
+  const counts = r.kind === "277CA" ? `${r.claims} claims acknowledged: ${r.accepted} accepted, ${r.rejected} rejected → ${r.denials} work items, ${plural(r.alerts, "Teams alert")}`
+    : r.kind === "277" ? `${r.claims} claim statuses: ${r.in_process} in process, ${r.paid} paid, ${r.needs_action} need action now → ${r.denials} work items, ${plural(r.alerts, "Teams alert")}`
+    : `${r.claims} claims${r.denials !== undefined ? `, ${r.denials} denials decided, ${plural(r.alerts, "Teams alert")}` : ""}`;
   el.innerHTML = `<div class="alert-card warn" style="border-left-color:var(--win)"><b>✓ ${esc(r.kind)} processed${r.payer ? " · " + esc(r.payer) : ""}</b> - ${counts}${r.unmatched?.length ? `, ${r.unmatched.length} unmatched` : ""}
     ${(r.new_items || []).map((i) => `<div class="small"><a href="#claim/${esc(i.claim_id)}">${esc(i.claim_id)}</a> → ${esc(META.actions[i.action])} · ${money2(i.amount)}</div>`).join("")}
     ${r.alerts ? `<div class="small" style="margin-top:6px"><a href="#dashboard">See the Teams alerts on the Dashboard →</a></div>` : ""}</div>`;
-  toast(r.kind === "277CA" ? `Done: ${r.rejected} rejections routed, ${r.alerts} Teams alerts` : r.kind === "277" ? `Done: ${r.needs_action} claim statuses need action, ${r.alerts} Teams alerts` : r.denials !== undefined ? `Done: ${r.denials} denials decided, ${r.alerts} Teams alerts` : `Done: ${r.claims} claims loaded`);
+  toast(r.kind === "277CA" ? `Done: ${r.rejected} rejections routed, ${plural(r.alerts, "Teams alert")}` : r.kind === "277" ? `Done: ${r.needs_action} claim statuses need action, ${plural(r.alerts, "Teams alert")}` : r.denials !== undefined ? `Done: ${r.denials} denials decided, ${plural(r.alerts, "Teams alert")}` : `Done: ${r.claims} claims loaded`);
 }
 
 /* ------------------------------------------------------------ proof */
