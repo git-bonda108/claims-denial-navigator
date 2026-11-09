@@ -55,7 +55,7 @@ async function dashboard() {
     return Object.entries(obj).map(([k, v]) => `<div class="bar-row"><div>${esc(k)}</div><div class="bar"><span style="width:${(100 * v) / max}%;background:${color}"></span></div><div class="num">${money(v)}</div></div>`).join("");
   };
   el.innerHTML = `
-    <h1>Denials at a glance</h1>
+    <div class="kicker">Overview</div><h1>Denials at a glance</h1>
     <p class="sub">As of ${esc(s.as_of)} · ${s.claims.toLocaleString()} claims with a remittance or rejection · ${(s.denial_rate * 100).toFixed(1)}% denial rate</p>
     <div class="grid kpis">
       <div class="card kpi loss"><div class="label">Open denied dollars</div><div class="value">${money(s.denied_amount)}</div><div class="muted small">${s.open_items} open items</div></div>
@@ -89,7 +89,7 @@ function alertHtml(a) {
 async function worklist(band) {
   const el = $("#view-worklist");
   if (!el.dataset.ready) {
-    el.innerHTML = `<h1>Worklist</h1><p class="sub">Ranked by expected recovery × deadline urgency. Routine adjustments are already filtered out.</p>
+    el.innerHTML = `<div class="kicker">Work queue</div><h1>Worklist</h1><p class="sub">Ranked by expected recovery × deadline urgency. Routine adjustments are already filtered out.</p>
       <div class="filters">
         <select id="f-queue"><option value="">All queues</option>${META.queues.map((q) => `<option value="${q}">${title(q)}</option>`).join("")}</select>
         <select id="f-band"><option value="">All urgency</option>${["CRITICAL", "HIGH", "MEDIUM", "LOW", "EXPIRED"].map((b) => `<option value="${b}">${title(b)}</option>`).join("")}</select>
@@ -155,7 +155,7 @@ function decisionHtml(d, c) {
   const letterable = d.source !== "277CA" && ["APPEAL_REDETERMINATION", "APPEAL_LEVEL_1", "OBTAIN_RETRO_AUTH", "CORRECT_AND_RESUBMIT", "REOPENING", "MANUAL_REVIEW"].includes(d.action);
   return `<div class="card decision ${d.needs_review ? "review" : ""}">
     <h3><span class="chip">${d.source === "277CA" ? "Whole claim · front-end rejection" : `Line ${d.line_no} · ${esc(d.code || "")}`}</span><span class="chip">${esc(codeLabel(d))}</span>${d.rarcs.map((r) => `<span class="chip">${esc(r)}</span>`).join("")} ${actionBadge(d.action)}
-      <span class="muted small">→ ${title(d.queue)}</span> <span class="badge ${d.status === "DONE" ? "act-CORRECT_AND_RESUBMIT" : ""}" style="${d.status === "DONE" ? "" : "background:#eef2f6;color:#1f2933"}">${esc(d.status)}</span></h3>
+      <span class="muted small">→ ${title(d.queue)}</span> <span class="badge ${d.status === "DONE" ? "act-CORRECT_AND_RESUBMIT" : ""}" style="${d.status === "DONE" ? "" : "background:#f2f4f7;color:#1b2a3a"}">${esc(d.status)}</span></h3>
     <div class="cause"><b>${esc(d.root_cause)}.</b></div>
     <div class="narrative">${esc(ex.narrative || "")}<div class="muted small" style="margin-top:6px">Explanation by <span class="mono">${esc(ex.by || "rules")}</span>${ex.proposed_action ? " · model proposes " + actionBadge(ex.proposed_action) : ""}${ex.model_error ? " · model unavailable: " + esc(ex.model_error) : ""}</div></div>
     <div class="cols">
@@ -214,7 +214,7 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") { if ($("#
 function assistant() {
   const el = $("#view-assistant");
   if (el.dataset.ready) return;
-  el.innerHTML = `<h1>Assistant</h1><p class="sub">The same agent is available in Microsoft Teams. It answers from the worklist, the rules and the policy library.</p>
+  el.innerHTML = `<div class="kicker">Assistant · also in Microsoft Teams</div><h1>Assistant</h1><p class="sub">The same agent is available in Microsoft Teams. It answers from the worklist, the rules and the policy library.</p>
     <div class="chat card"><div class="msgs" id="msgs"></div>
     <div class="suggest">${["Top 10 by dollars", "What is due this week?", "Give me a summary", "What is the Medicare timely filing limit?", "When can I use modifier XS?"].map((s) => `<button onclick="ask('${s}')">${s}</button>`).join("")}</div>
     <form class="composer" onsubmit="event.preventDefault();ask($('#q').value)"><input type="text" id="q" placeholder="Ask about a claim (e.g. why was PRH-10222 denied?)" autocomplete="off"><button>Send</button></form></div>`;
@@ -244,7 +244,7 @@ async function inbox() {
   const done = (f) => s.files.find((x) => x.name === f && x.status === "PROCESSED");
   const ch = (META.site && META.site.clearinghouse) || "the clearinghouse";
   const kindOf = (f) => f.startsWith("277") ? "Claim acknowledgement (277CA)" : f.startsWith("835") ? "Remittance (835)" : "X12 file";
-  el.innerHTML = `<h1>Clearinghouse inbox</h1><p class="sub">Files from ${esc(ch)}: 277CA claim acknowledgements (front-end rejections) and 835 remittances (payer denials). Each file is parsed deterministically, matched to the claim, decided, ranked and routed in seconds.</p>
+  el.innerHTML = `<div class="kicker">Experian Health · file intake</div><h1>Clearinghouse inbox</h1><p class="sub">Files from ${esc(ch)}: 277CA claim acknowledgements (front-end rejections) and 835 remittances (payer denials). Each file is parsed deterministically, matched to the claim, decided, ranked and routed in seconds.</p>
     <div class="grid two">
       <div class="card"><h2>Today's drop from ${esc(ch)}</h2><div class="muted small">Simulated secure file drop. In the pilot an Azure job collects these from ${esc(ch)} on a schedule.</div>${files.map((f) => { const d = done(f); return `<div class="actions inbox-row" style="margin:6px 0"><span class="small" style="flex:1"><span class="mono">${esc(f)}</span>${d ? ` <span class="badge act-CORRECT_AND_RESUBMIT">Ingested ✓</span>` : ""}<br><span class="muted">${kindOf(f)}</span></span><a class="small" href="/api/demo-files/${encodeURIComponent(f)}" target="_blank">view raw</a><button class="${d ? "secondary" : ""}" data-file="${esc(f)}" onclick="ingestDemo(this)">${d ? "Ingest again" : "Ingest"}</button></div>`; }).join("") || '<p class="muted">None</p>'}
         <div id="ingest-result" class="result">${keep}</div>
@@ -302,7 +302,7 @@ async function proof() {
   const [e, s, m] = await Promise.all([api("/api/evals"), api("/api/summary"), api("/api/meta")]);
   const pct = (v) => v === undefined ? "—" : (v * 100).toFixed(1) + "%";
   const scen = Object.entries(e.accuracy).filter(([k]) => k.startsWith("scenario:")).sort();
-  el.innerHTML = `<h1>Proof &amp; quality</h1><p class="sub">Every synthetic denial was injected with a known correct answer. This page scores the live decisions against that ground truth.</p>
+  el.innerHTML = `<div class="kicker">Quality</div><h1>Proof &amp; quality</h1><p class="sub">Every synthetic denial was injected with a known correct answer. This page scores the live decisions against that ground truth.</p>
     <div class="grid kpis">
       <div class="card kpi win"><div class="label">Denial decisions correct</div><div class="value">${pct(e.accuracy.denial)}</div><div class="muted small">${e.counts.denial} labelled denials</div></div>
       <div class="card kpi win"><div class="label">Noise correctly filtered</div><div class="value">${pct(e.accuracy.noise)}</div><div class="muted small">${e.counts.noise} routine adjustments</div></div>
@@ -328,7 +328,7 @@ async function agent() {
   const row = (k, v) => `<div class="kv"><div>${esc(k)}</div><div>${v}</div></div>`;
   const t = c.telemetry, e = c.evaluation, id = c.identity;
   const card = (n, title, sub, body) => `<div class="card agent-item"><div class="agent-head"><span class="agent-num">${n}</span><div><h2>${esc(title)}</h2><div class="muted small">${esc(sub)}</div></div><span class="badge act-CORRECT_AND_RESUBMIT">In place</span></div>${body}</div>`;
-  el.innerHTML = `<h1>Agent card</h1>
+  el.innerHTML = `<div class="kicker">Governance</div><h1>Agent card</h1>
     <p class="sub">The six things a production agent needs: who owns it, what it may do, how it is tested, how it is governed, what it is doing right now, and how to run it. Filled live from this system.</p>
     <div class="grid two">
       ${card(1, "Named owner", "Accountable people", row("Business owner", esc(c.owner.business_owner)) + row("Technical owner", esc(c.owner.technical_owner)) + row("Operator", esc(c.owner.operator)))}
@@ -380,7 +380,7 @@ async function reporting() {
   const ta = r.turnaround, rc = r.recovery;
   const secs = ta.file_to_worklist_seconds === null ? "—" : ta.file_to_worklist_seconds < 1 ? "< 1 s" : ta.file_to_worklist_seconds.toFixed(0) + " s";
   const mins = ta.median_minutes_to_decision === null ? "—" : ta.median_minutes_to_decision < 1 ? "< 1 min" : ta.median_minutes_to_decision.toFixed(0) + " min";
-  el.innerHTML = `<h1>Reporting</h1>
+  el.innerHTML = `<div class="kicker">Power BI preview</div><h1>Reporting</h1>
     <p class="sub">What the hospital's Power BI report shows: denial trends, turnaround, recovery and the value side of ROI. Computed live from the same tables as the worklist. In the pilot, Power BI reads them from Azure SQL.</p>
     <div class="grid kpis">
       <div class="card kpi"><div class="label">Denial rate · ${t.length} months</div><div class="value">${pctTxt(adj ? den / adj : null)}</div><div class="muted small">${den.toLocaleString()} of ${adj.toLocaleString()} adjudicated claims</div></div>
@@ -457,6 +457,7 @@ function calcRoi() {
     const pt = $("#partner-tag"); pt.textContent = META.partner.tagline; pt.hidden = false;
     document.title = "Denial Navigator · " + META.partner.name;
   }
+  if (META.site && META.site.name) { const sn = $("#site-name"); sn.textContent = "Prepared for " + META.site.name; sn.hidden = false; document.title = "Denial Navigator · " + META.site.name; }
   if (META.site && META.site.context) { const sc = $("#site-context"); sc.textContent = META.site.context; sc.hidden = false; }
   route();
 })();

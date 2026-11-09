@@ -114,7 +114,7 @@ Turn the branding off again with `az containerapp update -n ca-dn-sq5zvttffcgfu 
 
 ## H. Critical access hospital demo (Epic via Community Connect, Experian Health)
 
-Set the context on the Container App once: `SITE_CONTEXT="25-bed critical access hospital · Epic (Community Connect) · Experian Health"` (the deploy block does this). The sidebar then shows it under the hospital name, and the inbox is labelled as Experian Health's file drop. Everything is still synthetic.
+Set the context on the Container App once: `SITE_CONTEXT="25-bed critical access hospital · Epic (Community Connect) · Experian Health"` (the deploy block does this). When the hospital's name is known, add `SITE_NAME="<hospital name>"`: the sidebar then reads "Prepared for <hospital name>" and the browser tab carries the name. The sidebar then shows it under the hospital name, and the inbox is labelled as Experian Health's file drop. Everything is still synthetic.
 
 | # | Time | Click | Say | You should see |
 |---|---|---|---|---|

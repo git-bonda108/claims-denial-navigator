@@ -40,7 +40,8 @@ def partner() -> dict:
 
 def site() -> dict:
     """Optional hospital context for a customer-specific demo (e.g. SITE_CONTEXT="25-bed critical access hospital · Epic · Experian Health")."""
-    return {"context": os.getenv("SITE_CONTEXT", "").strip(), "clearinghouse": os.getenv("CLEARINGHOUSE", "Experian Health").strip()}
+    return {"name": os.getenv("SITE_NAME", "").strip(), "context": os.getenv("SITE_CONTEXT", "").strip(),
+            "clearinghouse": os.getenv("CLEARINGHOUSE", "Experian Health").strip()}
 
 
 class Feedback(BaseModel):
