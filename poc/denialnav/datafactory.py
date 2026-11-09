@@ -70,6 +70,7 @@ class World:
     labels: list = field(default_factory=list)
     ehr: dict = field(default_factory=dict)
     front_end: list = field(default_factory=list)  # (claim837, (category, status, entity)) acknowledged by 277CA
+    status: list = field(default_factory=list)  # (claim837, (category, status, entity), status_date, paid) on a 277 claim status reply
     next_id: int = 10001
 
     # ------------------------------------------------------------ entities
@@ -551,6 +552,36 @@ def front_end_batch(w: World) -> None:
         w.front_end.append((c, ("A2", "20", "")))
 
 
+def status_batch(w: World) -> None:
+    """Claims from earlier batches that have no 835 yet, as the clearinghouse's 277 claim status reply reports them.
+    Two need work before any 835 arrives: a records request and a denial for eligibility."""
+    def add(payer, bundle, dos_age, st, status_age, codes=None, dx=None, paid=None, ehr=None, scen=None):
+        b_codes, b_dx = BUNDLES[bundle] if bundle else (codes, dx)
+        dos = w.as_of - timedelta(days=dos_age)
+        c = w.new_claim(payer, codes or b_codes, dx or w.rng.sample(b_dx, k=min(2, len(b_dx))), dos, submitted=dos + timedelta(days=3))
+        if ehr:
+            w.ehr[c["claim_id"]] = ehr
+        w.status.append((c, st, w.as_of - timedelta(days=status_age), paid))
+        if scen:
+            w.label(c, scen[0], 0, "277", ":".join(x for x in st if x), scen[1], scen[2], scen[3],
+                    must_not=APPEALS + ["WRITE_OFF", "BILL_PATIENT"])
+        return c
+    # T01 Medicare Advantage ED visit: the payer has pended it for the records (answer within 30 days of the request)
+    add("MAP", "ed", 30, ("P3", "294", ""), 4, dx=["R07.9", "R06.02"],
+        ehr={"chart_docs": ["ED physician note", "Chest x-ray report", "ECG tracing and interpretation"]},
+        scen=("T01", "SEND_RECORDS", "BILLING", "Payer holding the claim for supporting documentation"))
+    # T02 commercial CT: denied on the status reply (not eligible on the date of service); another payer covers the patient
+    p = w.patient_for("SMM")
+    add("PLH", None, 35, ("F2", "88", "IL"), 2, codes=["74177"], dx=["R10.9"],
+        ehr={"eligibility_271_other": {"payer": w.ref.payers["SMM"]["name"], "member_id": p["member_id"], "status": "Active coverage"}},
+        scen=("T02", "BILL_OTHER_PAYER", "REGISTRATION", "Patient not eligible with this payer on the date of service; other coverage active"))
+    # the rest are simply in process, or paid with the 835 still to come
+    for payer, bundle in (("MCR", "office"), ("MCD", "office"), ("MCR", "therapy")):
+        add(payer, bundle, w.rng.randint(18, 28), ("P1", "20", ""), 1)
+    c = add("MCR", "office_labs", 26, ("F1", "65", ""), 1)
+    w.status[-1] = (c, ("F1", "65", ""), w.as_of - timedelta(days=1), round(sum(w.ref.services[ln["code"]]["allowed"] * ln["units"] for ln in c["lines"]), 2))
+
+
 def generate(out: Path, as_of: date, n_patients: int = 300, n_claims: int = 1200,
              denial_rate: float = 0.18, seed: int = 7) -> dict:
     rng = random.Random(seed)
@@ -586,6 +617,7 @@ def generate(out: Path, as_of: date, n_patients: int = 300, n_claims: int = 1200
     for c, rc, *_ in w.claims:
         label_noise(w, c, rc)
     front_end_batch(w)  # after everything else, so the rest of the dataset (and its claim IDs) is unchanged
+    status_batch(w)
     return write_outputs(w, out, seed)
 
 
@@ -605,7 +637,7 @@ def write_outputs(w: World, out: Path, seed: int) -> dict:
         else:
             rweek = remit_date - timedelta(days=remit_date.weekday())
             by_remit.setdefault((payer, rweek), []).append(rc)
-    for c, _st in w.front_end:
+    for c in [c for c, _st in w.front_end] + [c for c, *_rest in w.status]:
         week = date.fromisoformat(c["submitted"]) - timedelta(days=date.fromisoformat(c["submitted"]).weekday())
         by_sub.setdefault((c["_payer"], week), []).append(c)
     for (payer, week), claims in sorted(by_sub.items()):
@@ -633,15 +665,26 @@ def write_outputs(w: World, out: Path, seed: int) -> dict:
                                        "status": st} for c, st in w.front_end if c["_payer"] == payer]})
         (out / "demo_inbox" / f"277CA_EXPERIAN_{w.as_of:%Y%m%d}.txt").write_text(x12.write_277ca(groups, w.as_of, control))
         control += 1
+    if w.status:  # the clearinghouse's claim status reply (276/277) for claims still waiting on an 835
+        groups = []
+        for payer in sorted({c["_payer"] for c, *_r in w.status}):
+            groups.append({"payer_id": x12_payer_id(payer), "payer_name": w.ref.payers[payer]["name"], "billing_npi": BILLING_NPI,
+                           "claims": [{"claim_id": c["claim_id"], "patient": c["patient"], "total": c["total_charge"], "dos": c["dos"],
+                                       "status": st, "status_date": sd, "paid": paid,
+                                       "payer_claim_id": f"{payer}{c['claim_id'][-5:]}{c['dos'].replace('-', '')[2:]}"}
+                                      for c, st, sd, paid in w.status if c["_payer"] == payer]})
+        (out / "demo_inbox" / f"277_STATUS_EXPERIAN_{w.as_of:%Y%m%d}.txt").write_text(x12.write_277_status(groups, w.as_of, control))
+        control += 1
     (out / "labels.json").write_text(json.dumps(w.labels, indent=1))
     (out / "ehr_context.json").write_text(json.dumps(w.ehr, indent=1))
-    denied_claims = {lb["claim_id"] for lb in w.labels if lb["workable"] and lb["group"] != "277CA"}
+    denied_claims = {lb["claim_id"] for lb in w.labels if lb["workable"] and lb["group"] not in ("277CA", "277")}
     manifest = {"as_of": w.as_of.isoformat(), "seed": seed, "patients": len(w.patients),
                 "claims": len(w.claims), "denied_claims": len(denied_claims),
                 "denial_rate": round(len(denied_claims) / len(w.claims), 3),
                 "live_demo_claims": sum(1 for *_x, live in w.claims if live),
                 "acknowledged_by_277ca": len(w.front_end),
                 "front_end_rejections": sum(1 for _, st in w.front_end if st[0] not in ("A1", "A2")),
+                "claim_status_replies": len(w.status),
                 "scenarios": sorted({lb["scenario"] for lb in w.labels}),
                 "billing_npi": BILLING_NPI, "providers": w.providers}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1))

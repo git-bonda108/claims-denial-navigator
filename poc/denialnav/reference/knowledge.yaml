@@ -1,6 +1,6 @@
 # Demo knowledge library. Cards K01-K09, K15 and K16 summarise public CMS / X12 guidance
 # (summaries only - verify against the cited source before relying on them).
-# Card K21 summarises the public X12 277CA acknowledgement convention.
+# Cards K21 and K23 summarise public X12 277CA and 277 claim status conventions.
 # Cards K10-K14, K18, K19 and K22 are FICTIONAL policies written for the synthetic world.
 - id: K01
   title: Medicare timely filing limit
@@ -197,3 +197,14 @@
     code rejections, and Billing owns provider identifier and date rejections. Fix the source record
     in the EHR as well as the claim so the same error does not repeat, then release the corrected
     claim to the clearinghouse and confirm the acceptance acknowledgement the next day.
+- id: K23
+  title: Claim status (277) shows trouble before the 835
+  source: ASC X12 005010X212 Health Care Claim Status Request and Response (276/277)
+  tags: {action: [SEND_RECORDS]}
+  text: >-
+    A 277 claim status response reports where an adjudicating claim stands. Pending categories
+    (P1 in process, P2 payer review, P3 waiting for information requested from the provider, P4
+    waiting on the patient) and finalized categories (F1 paid, F2 denied, F4 complete with no payment)
+    come with a status code that names the reason, for example 294 supporting documentation or 88
+    not eligible on the date of service. Answering a P3 records request quickly avoids a denial;
+    an F2 seen on the status reply lets the team start work before the 835 arrives.

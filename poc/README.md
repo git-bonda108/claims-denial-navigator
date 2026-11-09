@@ -36,7 +36,8 @@ Without these settings, the app runs in **offline mode**. It uses deterministic 
 
 1. **Dashboard**: open denied dollars, at-risk dollars, deadline urgency bar, root causes, payers and queues.
 2. **Clearinghouse inbox**: click **Ingest** on `277CA_EXPERIAN_…`. Of 8 claims acknowledged, 3 were rejected before reaching the payer. They become correct-and-resubmit items for Registration, Billing and Coding, each with a timely filing deadline. One has 6 days left.
-3. Click **Ingest** on `835_LIVE_SMM_…`. Two denials are decided in under a second, and two **Teams alerts** fire: a $2,840 CT prior-auth denial and a correction due in 5 days.
+3. Click **Ingest** on `277_STATUS_EXPERIAN_…`: the payer's claim status for claims still waiting on an 835. One is held for records (send them within 30 days), one is already denied for eligibility (bill the right payer), the rest are in process or paid.
+   Then click **Ingest** on `835_LIVE_SMM_…`. Two denials are decided in under a second, and two **Teams alerts** fire: a $2,840 CT prior-auth denial and a correction due in 5 days.
 4. **Claim PRH-10222** (CO-197): checks show the auth was on file, so the decision is to appeal. Click **Draft letter**: the letter cites the payer policy.
 5. Ingest `835_LIVE_MCR_…` and open the **CO-50 / N115 echo**. The LCD check fails on the billed diagnosis, and a covered diagnosis is found in the chart, so the decision is to correct and resubmit (reopening), with the deadline computed.
 6. **Override** any item with a reason. It becomes a precedent card that future explanations cite.
@@ -48,7 +49,7 @@ Without these settings, the app runs in **offline mode**. It uses deterministic 
 
 | Area | Status |
 |---|---|
-| X12 835 / 837P / 277CA parsing and writing | Real, deterministic, with balancing checks. Not a full implementation-guide validator. 837I (institutional) is a pilot item. |
+| X12 835 / 837P / 277CA / 277 claim status parsing and writing | Real, deterministic, with balancing checks. Not a full implementation-guide validator. 837I (institutional) is a pilot item. |
 | Rules, deadlines, noise filter | Real logic. Medicare windows follow CMS rules; other payers come from config in `reference/payers.yaml`. |
 | Code sets | CARC/RARC: full list (1,485 codes, MIT-licensed from the RHAIL reference). ICD-10 / HCPCS: demo subsets with our own short descriptions. |
 | NCCI / MUE / LCD | **Illustrative subsets** in CMS file format. Replace them with the quarterly CMS files and the Medicare Coverage Database for a pilot. |

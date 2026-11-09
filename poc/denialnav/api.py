@@ -187,7 +187,7 @@ def create_app(service: Service | None = None) -> FastAPI:
             "evaluation": {"decision_accuracy": ev.get("accuracy", {}).get("denial"), "noise_accuracy": ev.get("accuracy", {}).get("noise"),
                            "unsafe_actions": len(ev.get("must_not_violations", [])), "labelled_denials": ev.get("counts", {}).get("denial"),
                            "deadlines_computed": ev.get("deadlines_computed"),
-                           "suites": "36 automated tests · 19 business test cases · 60 browser checks · 42 deployment checks",
+                           "suites": "38 automated tests · 20 business test cases · 65 browser checks · 43 deployment checks",
                            "note": "Synthetic data; the pilot re-scores on the hospital's own de-identified remittances"},
             "identity": {"model": f"Azure OpenAI {s.agent.deployment} in Microsoft Foundry" if azure else "Offline templates (no AI service configured)",
                          "guardrail": "Microsoft Foundry default guardrail: content filters, Prompt Shields for prompt attacks, protected material" if azure else "n/a",

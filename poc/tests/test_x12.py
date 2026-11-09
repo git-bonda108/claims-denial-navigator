@@ -84,3 +84,18 @@ def test_277_without_claim_identifier_is_rejected():
         date(2026, 1, 2)).replace("TRN*2*PRH-1~", "")
     with pytest.raises(x12.X12Error):
         x12.parse_277(text)
+
+
+def test_277_claim_status_round_trip():
+    groups = [{"payer_id": "DEMOMAP", "payer_name": "Heartland Advantage", "billing_npi": "1900000013", "claims": [
+        {"claim_id": "PRH-1", "patient": {"first": "A", "last": "B", "member_id": "M1"}, "total": 1570.0, "dos": "2026-10-10",
+         "status": ("P3", "294", ""), "status_date": date(2026, 11, 5), "payer_claim_id": "MA1"},
+        {"claim_id": "PRH-2", "patient": {"first": "C", "last": "D", "member_id": "M2"}, "total": 165.0, "dos": "2026-10-12",
+         "status": ("F1", "65", ""), "paid": 120.0}]}]
+    text = x12.write_277_status(groups, date(2026, 11, 9), 3)
+    assert "ST*277*0001*005010X212~" in text and "*DG~" in text
+    r = x12.parse_277(text)
+    assert r["kind"] == "277"
+    a, b = r["claims"]
+    assert a["statuses"] == [{"category": "P3", "code": "294", "entity": ""}] and a["status_date"] == "2026-11-05" and a["payer_claim_id"] == "MA1"
+    assert b["paid"] == 120.0 and b["statuses"][0]["category"] == "F1"

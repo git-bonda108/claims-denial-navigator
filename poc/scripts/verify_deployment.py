@@ -122,7 +122,8 @@ def main() -> int:
     # 6. live remittance ingestion + Teams alerts
     s, files, _ = call("GET", "/api/demo-files")
     names = files.get("files", []) if isinstance(files, dict) else []
-    record("Ingestion", "Clearinghouse files available", len(names) >= 3 and any(n.startswith("277CA") for n in names), ", ".join(names))
+    record("Ingestion", "Clearinghouse files available", len(names) >= 4 and any(n.startswith("277CA") for n in names)
+           and any(n.startswith("277_") for n in names), ", ".join(names))
     for n in names:
         s, r, dt = call("POST", f"/api/demo-files/{n}/ingest", timeout=180)
         if not isinstance(r, dict):
@@ -131,6 +132,10 @@ def main() -> int:
         if n.startswith("277CA"):
             ok = ok and r.get("rejected") == 3 and r.get("accepted") == 5 and r.get("denials") == 3
             detail = f"{r.get('claims')} claims: {r.get('accepted')} accepted, {r.get('rejected')} rejected, {r.get('alerts')} alerts in {dt:.1f}s"
+        elif n.startswith("277_"):
+            ok = ok and r.get("kind") == "277" and (r.get("in_process"), r.get("paid"), r.get("needs_action")) == (3, 1, 2)
+            detail = (f"{r.get('claims')} statuses: {r.get('in_process')} in process, {r.get('paid')} paid, "
+                      f"{r.get('needs_action')} need action, {r.get('alerts')} alerts in {dt:.1f}s")
         else:
             detail = f"{r.get('claims')} claims, {r.get('denials')} denials, {r.get('alerts')} alerts in {dt:.1f}s"
         record("Ingestion", f"Parse + decide {n[:22]}", ok, detail if ok else f"HTTP {s}: {r.get('error') or r.get('detail') or r}")

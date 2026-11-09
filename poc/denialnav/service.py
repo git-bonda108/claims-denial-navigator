@@ -22,6 +22,7 @@ CATEGORY = {"22": "Eligibility / registration", "27": "Eligibility / registratio
             "197": "Prior authorization", "50": "Medical necessity", "167": "Medical necessity", "97": "Bundling",
             "29": "Timely filing", "18": "Duplicate"}
 FRONT_END = "Front-end rejection (277CA)"
+CLAIM_STATUS = "Claim status (277)"
 CLEARINGHOUSE = os.getenv("CLEARINGHOUSE", "Experian Health")
 
 
@@ -82,20 +83,20 @@ class Service:
     def ingest(self, name: str, text: str, notify: bool = True, rerank: bool = True) -> dict:
         t0 = time.perf_counter()
         result = self._ingest(name, text, notify, rerank)
-        if notify and result.get("status") == "PROCESSED" and result.get("kind") in ("835", "277CA"):
+        if notify and result.get("status") == "PROCESSED" and result.get("kind") in ("835", "277CA", "277"):
             self.timings.append({"file": name, "kind": result["kind"], "seconds": round(time.perf_counter() - t0, 1),
                                  "items": result.get("denials", 0)})
         return result
 
     def _ingest(self, name: str, text: str, notify: bool, rerank: bool) -> dict:
         head = text[:2000]
-        kind = "835" if "ST*835" in head else "837" if "ST*837" in head else "277CA" if "ST*277" in head else "unknown"
+        kind = "835" if "ST*835" in head else "837" if "ST*837" in head else "277" if "ST*277" in head else "unknown"
         try:
             if kind == "837":
                 return self._ingest_837(name, text)
             if kind == "835":
                 return self._ingest_835(name, text, notify, rerank)
-            if kind == "277CA":
+            if kind == "277":
                 return self._ingest_277(name, text, notify, rerank)
             raise x12.X12Error("File is not an X12 835, 837 or 277CA transaction")
         except (x12.X12Error, ValueError, KeyError, IndexError) as exc:
@@ -175,30 +176,42 @@ class Service:
             d["explanation"] = ex
 
     def _ingest_277(self, name: str, text: str, notify: bool, rerank: bool) -> dict:
-        """Claim acknowledgements from the clearinghouse: accepted claims are counted, rejected claims become
-        correct-and-resubmit work items with a timely filing deadline (they will never produce an 835)."""
+        """Both 277 files from the clearinghouse.
+
+        277CA (acknowledgement): accepted claims are counted; rejected claims become correct-and-resubmit work with a
+        timely filing deadline (they will never produce an 835).
+        277 (claim status): pending and paid claims are counted; a claim pended for records or denied before the 835
+        arrives becomes work straight away."""
         ack = x12.parse_277(text)
-        fid = self.store.add_file(name, "277CA", "PROCESSING", "")
+        kind = ack["kind"]
+        fid = self.store.add_file(name, kind, "PROCESSING", "")
         ack_date = date.fromisoformat(ack["date"]) if ack["date"] else self.as_of
-        accepted, orphans, pending, new, alerts = 0, [], [], [], []
+        orphans, pending, new, alerts = [], [], [], []
+        counts: Counter = Counter()
         payers = set()
         for c in ack["claims"]:
-            if c["accepted"]:
-                accepted += 1
-                continue
+            cats = {st["category"] for st in c["statuses"]}
             stored = self.store.claim(c["claim_id"])
             if not stored:
-                orphans.append(c["claim_id"])
+                if kind == "277CA" and c["accepted"]:
+                    counts["accepted"] += 1  # accepted claims need no match
+                else:
+                    orphans.append(c["claim_id"])
                 continue
             payer_key = stored["payer_key"]
             payer = self.ref.payers[payer_key]
+            decisions = rules.decide_277(stored["claim"], c, stored["ehr"], payer_key, self.ref, ack_date, self.as_of, kind=kind)
+            if not decisions:
+                counts["accepted" if kind == "277CA" else ("paid" if cats & {"F1"} else "pending")] += 1
+                continue
+            counts["rejected" if kind == "277CA" else "needs_action"] += 1
             payers.add(payer["name"])
-            decisions = rules.decide_277(stored["claim"], c, stored["ehr"], payer_key, self.ref, ack_date, self.as_of)
             self.model.score(decisions, payer["type"], sum(self.ref.services.get(ln["code"], {}).get("allowed", 0) * ln["units"]
                                                           for ln in stored["claim"]["lines"]) or None)
             for d in decisions:
                 d.update(payer_key=payer_key, payer=payer["name"], dos=stored["claim"]["dos"], remit_date=ack_date.isoformat(), decided_at=now(),
-                         patient=f"{stored['claim']['patient']['last']}, {stored['claim']['patient']['first']}", category=FRONT_END)
+                         patient=f"{stored['claim']['patient']['last']}, {stored['claim']['patient']['first']}",
+                         category=FRONT_END if kind == "277CA" else CLAIM_STATUS)
                 pending.append((d, stored))
         self._explain_all(pending, notify)
         for d, stored in pending:
@@ -209,13 +222,18 @@ class Service:
         self.store.commit()
         if rerank:
             self._rerank()
-        rejected = len(ack["claims"]) - accepted
-        detail = f"{len(ack['claims'])} claims: {accepted} accepted, {rejected} rejected" + (f", {len(orphans)} unmatched" if orphans else "")
+        n = len(ack["claims"])
+        if kind == "277CA":
+            detail = f"{n} claims: {counts['accepted']} accepted, {counts['rejected']} rejected"
+        else:
+            detail = f"{n} claim statuses: {counts['pending']} in process, {counts['paid']} paid, {counts['needs_action']} need action"
+        detail += f", {len(orphans)} unmatched" if orphans else ""
         with self.store.lock:
             self.store.db.execute("UPDATE files SET status=?, detail=? WHERE id=?", ("PROCESSED", detail, fid))
             self.store.db.commit()
-        return {"file_id": fid, "kind": "277CA", "status": "PROCESSED", "payer": f"{CLEARINGHOUSE} · {len(payers)} payers" if payers else CLEARINGHOUSE,
-                "claims": len(ack["claims"]), "accepted": accepted, "rejected": rejected, "denials": len(new),
+        return {"file_id": fid, "kind": kind, "status": "PROCESSED", "payer": f"{CLEARINGHOUSE} · {len(payers)} payers" if payers else CLEARINGHOUSE,
+                "claims": n, "accepted": counts["accepted"], "rejected": counts["rejected"], "in_process": counts["pending"],
+                "paid": counts["paid"], "needs_action": counts["needs_action"], "denials": len(new),
                 "unmatched": orphans, "alerts": len(alerts),
                 "new_items": [{"claim_id": d["claim_id"], "action": d["action"], "amount": d["amount"]} for d in new]}
 
@@ -279,6 +297,8 @@ class Service:
             return {"error": "decision not found"}
         if d.get("source") == "277CA":
             return {"error": "A front-end rejection is corrected and resubmitted, not appealed, so there is no letter to draft."}
+        if d.get("source") == "277":
+            return {"error": "This claim has no 835 denial yet: the claim status calls for records or coverage, not an appeal letter."}
         stored, remit = self.store.claim(d["claim_id"]), self.store.remit(d["claim_id"])
         if not remit:
             return {"error": f"No remittance on file for {d['claim_id']}"}
@@ -490,7 +510,7 @@ class Service:
                     "decisions": [{k: d.get(k) for k in ("line_no", "code", "group", "carc", "rarcs", "amount", "action", "queue",
                                                          "root_cause", "steps", "deadline")} for d in det["decisions"] if d["workable"]]}
         if name == "draft_appeal":
-            ds = [d for d in self.store.decisions(args["claim_id"].upper(), workable_only=True) if d.get("source") != "277CA"]
+            ds = [d for d in self.store.decisions(args["claim_id"].upper(), workable_only=True) if d.get("source") not in ("277CA", "277")]
             if not ds:
                 return {"error": f"No open denial for {args['claim_id']}"}
             return self.letter(max(ds, key=lambda d: d["amount"])["id"])

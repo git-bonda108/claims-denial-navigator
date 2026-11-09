@@ -83,7 +83,7 @@ class App:
         return [d for d in det.get("decisions", []) if d.get("workable")], det, dt
 
 
-ACTION = {"APPEAL_LEVEL_1": "Appeal (level 1)", "CORRECT_AND_RESUBMIT": "Correct & resubmit", "BILL_OTHER_PAYER": "Bill other payer",
+ACTION = {"SEND_RECORDS": "Send requested records", "APPEAL_LEVEL_1": "Appeal (level 1)", "CORRECT_AND_RESUBMIT": "Correct & resubmit", "BILL_OTHER_PAYER": "Bill other payer",
           "SUBMIT_NEW_CLAIM": "Submit new claim", "WRITE_OFF": "Write off", "BILL_PATIENT": "Bill patient"}
 act = lambda a: ACTION.get(a, a)
 
@@ -310,6 +310,25 @@ def tc_rejections(app, ctx):
                 + f". Draft letter offered: {'no' if letter_status == 404 else 'yes'} (nothing to appeal)."), dt
 
 
+def tc_claim_status(app, ctx):
+    r, dt = app.ingest("277_STATUS")
+    rows = []
+    for i in r.get("new_items", []):
+        ds, det, _ = app.decisions(i["claim_id"])
+        rows += [d for d in ds if d.get("source") == "277"]
+    by = {d["carc"]: d for d in rows}
+    rec, elig = by.get("P3:294", {}), by.get("F2:88:IL", {})
+    letter = app.call("POST", f"/api/decisions/{rec['id']}/letter")[0] if rec else {}
+    ok = (r.get("kind") == "277" and (r.get("in_process"), r.get("paid"), r.get("needs_action")) == (3, 1, 2)
+          and rec.get("action") == "SEND_RECORDS" and rec.get("queue") == "BILLING" and (rec.get("deadline") or {}).get("type") == "RECORDS_REQUEST"
+          and elig.get("action") == "BILL_OTHER_PAYER" and elig.get("queue") == "REGISTRATION" and letter.get("error") == "HTTP 404")
+    return ok, (f"File {r.get('status')} in {dt:.1f}s: {r.get('claims')} claim statuses, {r.get('in_process')} in process, {r.get('paid')} paid, "
+                f"{r.get('needs_action')} need action, {r.get('alerts')} Teams alert. "
+                + "; ".join(f"{d['claim_id']} 277 {d['carc']} ${d['amount']:,.0f} → {act(d['action'])} → {d['queue'].title()}, "
+                            f"{d['deadline']['type'].replace('_', ' ').lower()} in {d['deadline']['days_left']} days" for d in rows)
+                + f". Draft letter offered: {'no' if letter.get('error') == 'HTTP 404' else 'yes'} (no 835 yet)."), dt
+
+
 def tc_reporting(app, ctx):
     r, dt = app.call("GET", "/api/report")
     status, headers, body, dt2 = app.fetch("/api/report/denials.csv")
@@ -391,11 +410,15 @@ CASES = [
      "1. Clearinghouse inbox → Ingest 277CA_EXPERIAN_… once.\n2. Click the Summit Mutual claim in the result.\n3. Read Checks, Steps and Deadline.",
      "5 accepted, 3 rejected → 3 items: subscriber not found → Registration (6 days left, Critical, Teams alert); invalid rendering NPI → Billing; "
      "invalid diagnosis → Coding ($2,840, Teams alert). Correct & resubmit, timely filing deadline, no Draft letter button.", tc_rejections),
-    ("TC-18", "Reporting", "Reporting and the Power BI dataset", "Can the CFO see denial trends, turnaround, recovery and ROI, and take the data into Power BI?",
+    ("TC-18", "Ingestion", "Experian 277 claim status: act before the 835", "Do claims the payer has pended or denied get worked before the 835 arrives?",
+     "1. Clearinghouse inbox → Ingest 277_STATUS_EXPERIAN_… once.\n2. Open the Heartland Advantage claim (records requested).\n3. Open the Plains Health CT (not eligible).",
+     "6 statuses: 3 in process, 1 paid, 2 need action. P3:294 → Send requested records → Billing, records due in 26 days. "
+     "F2:88:IL ($2,840) → Bill other payer → Registration, Teams alert. No Draft letter button (no 835 yet).", tc_claim_status),
+    ("TC-19", "Reporting", "Reporting and the Power BI dataset", "Can the CFO see denial trends, turnaround, recovery and ROI, and take the data into Power BI?",
      "1. Open Reporting.\n2. Hover a month in the trend.\n3. Change 'Net patient revenue'.\n4. Click Download dataset (CSV).",
      "Steady monthly denial rate (~18%), denial rate by payer, root causes, turnaround (file → worklist in seconds), recovery, value side of ROI "
      "($152K–$202K a year at the defaults). CSV downloads. No prices anywhere in the app.", tc_reporting),
-    ("TC-19", "Setup", "Leave the app clean", "Is the app ready for the next demo?",
+    ("TC-20", "Setup", "Leave the app clean", "Is the app ready for the next demo?",
      "1. Clearinghouse inbox → Reset demo data → OK.",
      "Resolved 0, no Teams alerts, live files ready to ingest again.", tc_clean),
 ]

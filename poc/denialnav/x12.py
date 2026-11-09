@@ -140,13 +140,13 @@ def parse_277(text: str) -> dict:
         tag = s[0]
         if tag == "BHT":
             out["date"] = _d8(_el(s, 4)) if _el(s, 4) else None
-            out["kind"] = "277CA" if _el(s, 6) == "TH" else "277"
+            out["kind"] = "277CA" if _el(s, 6) == "TH" else "277"  # TH = acknowledgement; DG = claim status response
         elif tag == "HL":
             level = _el(s, 3)
             claim = None
         elif tag == "NM1" and _el(s, 1) == "PR":
             payer = {"payer_name": _el(s, 3), "payer_id": _el(s, 9)}
-        elif tag == "NM1" and _el(s, 1) == "QC" and level == "PT":
+        elif tag == "NM1" and _el(s, 1) in ("QC", "IL") and level in ("PT", "22", "23"):
             claim = {"claim_id": None, "patient": {"last": _el(s, 3), "first": _el(s, 4), "member_id": _el(s, 9)},
                      "statuses": [], "status_date": None, "total": 0.0, "dos": None, "payer_claim_id": None, **payer}
             out["claims"].append(claim)
@@ -159,6 +159,7 @@ def parse_277(text: str) -> dict:
                     claim["statuses"].append({"category": parts[0], "code": _el(parts, 1), "entity": _el(parts, 2)})
             claim["status_date"] = _d8(_el(s, 2)) if _el(s, 2) else None
             claim["total"] = _amt(_el(s, 4))
+            claim["paid"] = _amt(_el(s, 5)) if _el(s, 5) else None
         elif claim is not None and tag == "REF" and _el(s, 1) == "1K":
             claim["payer_claim_id"] = _el(s, 2)
         elif claim is not None and tag == "DTP" and _el(s, 1) == "472":
@@ -362,6 +363,47 @@ def write_277ca(groups: list[dict], when: date, control: int = 1, sender: str = 
             segs.append(ELEM.join(["TRN", "2", c["claim_id"]]))
             cat, code, entity = c["status"]
             segs.append(ELEM.join(["STC", COMP.join(x for x in (cat, code, entity) if x), d8, "WQ" if cat in ("A1", "A2") else "U", _money(c["total"])]))
+            if c.get("payer_claim_id"):
+                segs.append(ELEM.join(["REF", "1K", c["payer_claim_id"]]))
+            dos = c["dos"].replace("-", "")
+            segs.append(ELEM.join(["DTP", "472", "RD8", f"{dos}-{dos}"]))
+    return _render(_close(segs, st, control))
+
+
+def write_277_status(groups: list[dict], when: date, control: int = 1, sender: str = "EXPERIANHEALTH") -> str:
+    """Claim status response (277, 005010X212), as Experian returns it for a 276 inquiry or a scheduled status sweep.
+
+    groups: [{"payer_id", "payer_name", "claims": [{"claim_id", "patient", "total", "dos", "status": (cat, code, entity),
+              "status_date"?: date, "paid"?: float, "payer_claim_id"?: str}]}]
+    """
+    d8 = when.strftime("%Y%m%d")
+    segs = _isa(sender, "PRAIRIERIDGE", when, control, "HN")
+    segs[1] = segs[1].replace("005010X214", "005010X212")
+    st = len(segs)
+    segs.append(ELEM.join(["ST", "277", "0001", "005010X212"]))
+    segs.append(ELEM.join(["BHT", "0010", "08", f"STS{control:06d}", d8, "1200", "DG"]))
+    hl = 0
+    for g in groups:
+        hl += 1; src = hl
+        segs.append(ELEM.join(["HL", str(src), "", "20", "1"]))
+        segs.append(ELEM.join(["NM1", "PR", "2", g["payer_name"], "", "", "", "", "PI", g["payer_id"]]))
+        hl += 1; rcv = hl
+        segs.append(ELEM.join(["HL", str(rcv), str(src), "21", "1"]))
+        segs.append(ELEM.join(["NM1", "41", "2", "PRAIRIE RIDGE COMMUNITY HOSPITAL", "", "", "", "", "46", "PRAIRIERIDGE"]))
+        hl += 1; prv = hl
+        segs.append(ELEM.join(["HL", str(prv), str(rcv), "19", "1"]))
+        segs.append(ELEM.join(["NM1", "1P", "2", "PRAIRIE RIDGE COMMUNITY HOSPITAL", "", "", "", "", "XX", g.get("billing_npi", "")]))
+        for c in g["claims"]:
+            hl += 1
+            p = c["patient"]
+            segs.append(ELEM.join(["HL", str(hl), str(prv), "22", "0"]))
+            segs.append(ELEM.join(["NM1", "IL", "1", p["last"], p["first"], "", "", "", "MI", p["member_id"]]))
+            segs.append(ELEM.join(["TRN", "2", c["claim_id"]]))
+            cat, code, entity = c["status"]
+            sd = (c.get("status_date") or when).strftime("%Y%m%d")
+            paid = c.get("paid")
+            segs.append(ELEM.join(["STC", COMP.join(x for x in (cat, code, entity) if x), sd, "", _money(c["total"]),
+                                   _money(paid) if paid is not None else ""]).rstrip("*"))
             if c.get("payer_claim_id"):
                 segs.append(ELEM.join(["REF", "1K", c["payer_claim_id"]]))
             dos = c["dos"].replace("-", "")

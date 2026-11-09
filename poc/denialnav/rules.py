@@ -17,6 +17,7 @@ ACTIONS = {
     "APPEAL_REDETERMINATION": "Appeal (redetermination)",
     "APPEAL_LEVEL_1": "Appeal (level 1)",
     "OBTAIN_RETRO_AUTH": "Obtain retro-authorization",
+    "SEND_RECORDS": "Send requested records",
     "BILL_OTHER_PAYER": "Bill other payer",
     "BILL_PATIENT": "Bill patient",
     "ROUTE_CREDENTIALING": "Route to credentialing",
@@ -410,16 +411,22 @@ STC_CATEGORY = {
     "A3": "Acknowledgement / returned as unprocessable", "A4": "Acknowledgement / not found",
     "A6": "Acknowledgement / rejected for missing information", "A7": "Acknowledgement / rejected for invalid information",
     "A8": "Acknowledgement / rejected for relational field in error",
+    "P1": "Pending / in process", "P2": "Pending / payer review", "P3": "Pending / provider requested information",
+    "P4": "Pending / patient requested information", "F1": "Finalized / payment", "F2": "Finalized / denial",
+    "F4": "Finalized / adjudication complete, no payment forthcoming",
 }
 STC_STATUS = {
     "19": "Entity acknowledges receipt of claim/encounter", "20": "Accepted for processing",
     "21": "Missing or invalid information", "33": "Subscriber and subscriber id not found",
     "164": "Entity's contract/member number", "187": "Date(s) of service", "254": "Principal diagnosis code",
     "255": "Diagnosis code", "454": "Procedure code for services rendered", "562": "Entity's National Provider Identifier (NPI)",
+    "65": "Claim/line has been paid", "88": "Entity not eligible for benefits for submitted dates of service",
+    "294": "Supporting documentation",
 }
 STC_ENTITY = {"IL": "subscriber", "QC": "patient", "85": "billing provider", "82": "rendering provider", "41": "submitter",
               "PR": "payer", "40": "receiver"}
 REJECTED = {"A3", "A6", "A7", "A8"}
+STATUS_WORK = {"P3", "P4", "F2"}  # claim-status replies that need someone to act before the 835 arrives
 
 
 def stc_text(st: dict) -> str:
@@ -484,6 +491,46 @@ def _route_277(st: dict, claim: dict, ehr: dict) -> Outcome:
                    knowledge=["K21", "K22"], confidence=0.4, needs_review=True)
 
 
+def _route_status(st: dict, claim: dict, ehr: dict, payer: dict, status_date: date, as_of: date) -> tuple[Outcome, dict]:
+    """277 claim status (005010X212): pended for records, or denied before the 835 arrives."""
+    code, cat = st.get("code") or "", st["category"]
+    dos = date.fromisoformat(claim["dos"])
+    if cat in ("P3", "P4"):
+        days = payer.get("records_request_days", 30)
+        due = status_date + timedelta(days=days)
+        docs = ehr.get("chart_docs") or []
+        o = Outcome("SEND_RECORDS", "BILLING", "The payer is holding the claim until it receives supporting documentation",
+                    steps=["Pull the requested records from the chart in Epic", "Send them through the payer portal or as an Experian attachment, quoting the payer claim number",
+                           "Check the claim status again in 10 days and confirm the records were received"],
+                    documents=docs or ["Records named in the payer's request"],
+                    checks=[check("Claim status", None, f"{cat}:{code} {STC_STATUS.get(code, '')}".strip()),
+                            check("Records available in the chart", bool(docs), ", ".join(docs) or "not found")],
+                    knowledge=["K23"], confidence=0.9 if docs else 0.75)
+        left = (due - as_of).days
+        return o, {"type": "RECORDS_REQUEST", "due_date": due.isoformat(), "days_left": left, "band": band(left),
+                   "rule": f"Records request: answer within {days} days of the payer's request (set per payer in Design)"}
+    days = payer["timely_filing_days_from_dos"]
+    due = dos + timedelta(days=days)
+    left = (due - as_of).days
+    deadline = {"type": "TIMELY_FILING", "due_date": due.isoformat(), "days_left": left, "band": band(left),
+                "rule": f"Timely filing: {days} days from date of service"}
+    if code == "88":
+        other = ehr.get("eligibility_271_other") or {}
+        o = Outcome("BILL_OTHER_PAYER", "REGISTRATION",
+                    "The payer denied the claim on its status reply: the patient was not eligible on the date of service",
+                    steps=["Run a 270/271 eligibility check across payers for the date of service",
+                           f"Update coverage in registration{' (active with ' + other['payer'] + ')' if other.get('payer') else ''}",
+                           "Bill the correct payer within its timely filing limit; the 835 denial from this payer will follow"],
+                    documents=["271 eligibility response from the correct payer"],
+                    checks=[check("Claim status", None, f"{cat}:{code} {STC_STATUS.get(code, '')}"),
+                            check("Other active coverage found", bool(other), f"{other.get('payer', '')} {other.get('member_id', '')}".strip() or "none on file")],
+                    knowledge=["K23", "K19"], confidence=0.9 if other else 0.7)
+        return o, deadline
+    return (Outcome("MANUAL_REVIEW", "BILLING", f"Claim status {cat}:{code} needs review",
+                    steps=["Read the status in the clearinghouse portal", "Decide the next step with the billing lead"],
+                    knowledge=["K23"], confidence=0.4, needs_review=True), deadline)
+
+
 def valid_npi(npi: str | None) -> bool | None:
     """NPI check digit: Luhn over '80840' + the first nine digits."""
     if not npi:
@@ -500,29 +547,39 @@ def valid_npi(npi: str | None) -> bool | None:
     return (10 - total % 10) % 10 == int(npi[9])
 
 
-def decide_277(claim: dict, ack: dict, ehr: dict, payer_key: str, ref: Reference, ack_date: date, as_of: date) -> list[dict]:
-    """One decision per rejected status on a 277CA claim. A rejected claim was never adjudicated: there is no 835 and
-    nothing to appeal, so the action is to correct and resubmit, and the clock is timely filing from the date of service."""
+def decide_277(claim: dict, ack: dict, ehr: dict, payer_key: str, ref: Reference, ack_date: date, as_of: date,
+               kind: str = "277CA") -> list[dict]:
+    """One decision per status that needs work.
+
+    277CA (acknowledgement): a rejected claim was never adjudicated, so there is no 835 and nothing to appeal; the action
+    is to correct and resubmit, against timely filing from the date of service.
+    277 (claim status): a claim pended for records, or denied before the 835 arrives, becomes work days or weeks earlier.
+    Pending, in-process and paid statuses create no work."""
     payer = ref.payers[payer_key]
     dos = date.fromisoformat(claim["dos"])
     days = payer["timely_filing_days_from_dos"]
     due = dos + timedelta(days=days)
     left = (due - as_of).days
     out = []
+    status_date = date.fromisoformat(ack["status_date"]) if ack.get("status_date") else ack_date
     for st in ack["statuses"]:
-        if st["category"] not in REJECTED:
+        if kind == "277" and st["category"] in STATUS_WORK:
+            o, dl = _route_status(st, claim, ehr, payer, status_date, as_of)
+        elif st["category"] in REJECTED:
+            o, dl = _route_277(st, claim, ehr), None
+        else:
             continue
-        o = _route_277(st, claim, ehr)
+        group = "277" if kind == "277" else "277CA"
         out.append({
-            "claim_id": claim["claim_id"], "line_no": 0, "group": "277CA",
+            "claim_id": claim["claim_id"], "line_no": 0, "group": group,
             "carc": ":".join(x for x in (st["category"], st.get("code"), st.get("entity")) if x),
-            "rarcs": [], "amount": ack.get("total") or claim["total_charge"], "code": None, "source": "277CA",
+            "rarcs": [], "amount": ack.get("total") or claim["total_charge"], "code": None, "source": group,
             "carc_definition": stc_text(st), "rarc_definitions": {},
             "workable": True, "action": o.action, "queue": o.queue, "root_cause": o.root_cause, "steps": o.steps,
             "documents": o.documents, "checks": o.checks, "knowledge": o.knowledge, "confidence": o.confidence,
             "needs_review": o.needs_review or o.action == "MANUAL_REVIEW",
-            "deadline": {"type": "TIMELY_FILING", "due_date": due.isoformat(), "days_left": left, "band": band(left),
-                         "rule": f"Timely filing: {days} days from date of service (a rejected claim does not stop the clock)"},
+            "deadline": dl or {"type": "TIMELY_FILING", "due_date": due.isoformat(), "days_left": left, "band": band(left),
+                               "rule": f"Timely filing: {days} days from date of service (a rejected claim does not stop the clock)"},
             "ack": {"date": ack_date.isoformat(), "status": st, "payer_claim_id": ack.get("payer_claim_id")},
             "decided_by": "RULES"})
     return out

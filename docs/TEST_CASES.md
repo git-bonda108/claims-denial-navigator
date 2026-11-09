@@ -52,6 +52,15 @@ A rejected claim never reached adjudication: there is no 835 and nothing to appe
 
 The same 277CA file carries 5 accepted claims (A2:20). They are counted, and they create no work.
 
+### Claim status (277 response from the clearinghouse) for claims still waiting on an 835
+
+| ID | Payer | 277 status | Injected root cause / context | Expected action | Queue | Key expected steps / evidence | Must not |
+|---|---|---|---|---|---|---|---|
+| T01 | Medicare Advantage | P3:294 pending, supporting documentation | ED visit pended until the payer gets the records; ED note, x-ray report and ECG are in the chart | `SEND_RECORDS` | Billing | Pull the records, send them quoting the payer claim number, re-check status in 10 days. Records-request deadline (30 days from the request, set per payer). | Appeal, write-off, bill patient |
+| T02 | Commercial (Plains Health) | F2:88:IL denied, not eligible on DOS | $2,840 CT denied on the status reply before any 835; the 271 shows active coverage with another payer | `BILL_OTHER_PAYER` | Registration | Run 270/271 across payers, update coverage, bill the correct payer within timely filing. High-value Teams alert. | Appeal, write-off, bill patient |
+
+The same file carries 3 claims in process (P1:20) and 1 paid (F1:65, 835 to follow). They are counted, and they create no work.
+
 ### Noise and non-denial cases (these must NOT create work items)
 
 | ID | Adjustment | Context | Expected | Must not |

@@ -26,6 +26,7 @@ def card(d: dict, claim: dict, payer_name: str, app_url: str) -> dict:
     facts = [{"title": "Claim", "value": f"{d['claim_id']} · {claim['patient']['last']}, {claim['patient']['first'][0]}."},
              {"title": "Payer", "value": payer_name},
              ({"title": "Rejection", "value": f"277CA {d['carc']} (never reached the payer's adjudication)"} if d.get("source") == "277CA" else
+              {"title": "Claim status", "value": f"277 {d['carc']} (before any 835)"} if d.get("source") == "277" else
               {"title": "Denial", "value": " ".join([f"{d['group']}-{d['carc']}", *d.get("rarcs", []), "on", d.get("code") or "claim"])}),
              {"title": "Amount", "value": f"${d['amount']:,.2f}"},
              {"title": "Action", "value": f"{ACTIONS[d['action']]} → {(d.get('queue') or '').replace('_', ' ').title()}"}]

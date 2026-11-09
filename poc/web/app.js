@@ -28,7 +28,7 @@ async function busy(btn, label, fn) {
 window.addEventListener("unhandledrejection", (e) => { console.error(e.reason); e.preventDefault(); });
 const actionBadge = (a) => `<span class="badge act-${esc(a)}">${esc(META.actions[a] || a)}</span>`;
 const bandBadge = (b, days) => b ? `<span class="badge band-${esc(b)}">${b === "EXPIRED" ? "Expired" : esc(days) + "d"} · ${title(b)}</span>` : `<span class="muted">—</span>`;
-const codeLabel = (d) => d.group === "277CA" ? `277CA ${d.carc}` : `${d.group}-${d.carc}`;
+const codeLabel = (d) => (d.group === "277CA" || d.group === "277") ? `${d.group} ${d.carc}` : `${d.group}-${d.carc}`;
 const BAND_COLORS = { EXPIRED: "#7b8794", CRITICAL: "#e4572e", HIGH: "#f2a541", MEDIUM: "#f6c97a", LOW: "#2e9e6a", NONE: "#c3ccd5" };
 
 /* ------------------------------------------------------------ routing */
@@ -129,7 +129,7 @@ async function openClaim(id, explain = false) {
   catch (e) { if (explain) throw e; $("#drawer-body").innerHTML = `<p>Could not load ${esc(id)}: ${esc(e.message)}</p><button onclick="openClaim('${esc(id)}')">Try again</button>`; return; }
   const cl = c.claim, rl = c.remit || { lines: [] };
   const work = c.decisions.filter((d) => d.workable), routine = c.decisions.filter((d) => !d.workable);
-  const ack = (work.find((d) => d.source === "277CA") || {}).ack;
+  const ackItem = work.find((d) => d.source === "277CA" || d.source === "277"), ack = ackItem && ackItem.ack, isStatus = ackItem && ackItem.source === "277";
   const lines = cl.lines.map((ln) => {
     const r = rl.lines.find((x) => x.line_no === ln.line_no) || {};
     return `<tr><td>${ln.line_no}</td><td class="mono">${esc(ln.code)}${ln.modifiers.length ? "-" + ln.modifiers.map(esc).join("-") : ""}</td><td>${esc(c.services[ln.code] || "")}</td>
@@ -138,23 +138,23 @@ async function openClaim(id, explain = false) {
   }).join("");
   $("#drawer-body").innerHTML = `
     <h1 class="mono" style="font-family:var(--mono)">${esc(cl.claim_id)}</h1>
-    <p class="sub">${esc(cl.patient.last)}, ${esc(cl.patient.first)} · ${esc(c.payer)} · DOS ${esc(cl.dos)} · ${ack ? `submitted ${esc(cl.submitted)} · rejected by 277CA on ${esc(ack.date)}` : `remit ${esc(c.remit_date || "—")} · ICN <span class="mono">${esc(rl.payer_icn || "")}</span>`}</p>
+    <p class="sub">${esc(cl.patient.last)}, ${esc(cl.patient.first)} · ${esc(c.payer)} · DOS ${esc(cl.dos)} · ${ack ? `submitted ${esc(cl.submitted)} · ${isStatus ? "claim status (277) on" : "rejected by 277CA on"} ${esc(ack.date)}` : `remit ${esc(c.remit_date || "—")} · ICN <span class="mono">${esc(rl.payer_icn || "")}</span>`}</p>
     ${work.map((d) => decisionHtml(d, c)).join("") || `<div class="card">No workable denials on this claim.</div>`}
-    <div class="card" style="margin-bottom:16px"><h2>${c.remit ? "Claim lines (837) and adjudication (835)" : ack ? "Claim lines (837) · no 835: rejected before adjudication" : "Claim lines (837) · no 835 yet"}</h2><div class="table-wrap"><table>
+    <div class="card" style="margin-bottom:16px"><h2>${c.remit ? "Claim lines (837) and adjudication (835)" : ack && !isStatus ? "Claim lines (837) · no 835: rejected before adjudication" : "Claim lines (837) · no 835 yet"}</h2><div class="table-wrap"><table>
       <thead><tr><th>#</th><th>Code</th><th>Description</th><th>Dx</th><th class="num">Units</th><th class="num">Billed</th><th class="num">Paid</th><th>Adjustments</th></tr></thead><tbody>${lines}</tbody></table></div>
       <div class="small muted" style="margin-top:8px">Diagnoses: ${Object.entries(c.dx).map(([k, v]) => `<span class="chip">${esc(k)}</span>${esc(v || "")}`).join(" · ")}</div>
       ${cl.notes ? `<div class="small" style="margin-top:8px"><b>Claim note (untrusted input):</b> <span class="mono">${esc(cl.notes)}</span></div>` : ""}</div>
     <div class="grid two">
       <div class="card"><h2>EHR facts used (mock EHR)</h2><div class="ehr">${esc(JSON.stringify(c.ehr, null, 2)) || "none"}</div></div>
-      <div class="card"><h2>${ack ? "Claim acknowledgement (277CA)" : "Routine adjustments (no work created)"}</h2>${ack ? `<div class="small"><span class="chip">${esc(work[0].carc)}</span> ${esc(work[0].carc_definition)}</div><div class="small muted" style="margin-top:6px">From the clearinghouse claim acknowledgement dated ${esc(ack.date)}. A rejected claim is corrected and resubmitted; there is nothing to appeal.</div>` : ""}${routine.map((d) => `<div class="small"><span class="chip">${esc(d.group)}-${esc(d.carc)}</span> ${money2(d.amount)} · ${esc(d.root_cause)} → ${esc(META.actions[d.action])}</div>`).join("") || (ack ? "" : '<p class="muted">None</p>')}</div>
+      <div class="card"><h2>${ack ? (isStatus ? "Claim status (277)" : "Claim acknowledgement (277CA)") : "Routine adjustments (no work created)"}</h2>${ack ? `<div class="small"><span class="chip">${esc(ackItem.carc)}</span> ${esc(ackItem.carc_definition)}</div><div class="small muted" style="margin-top:6px">${isStatus ? `From the payer's claim status reply dated ${esc(ack.date)}. No 835 yet, so the team can act before the denial arrives.` : `From the clearinghouse claim acknowledgement dated ${esc(ack.date)}. A rejected claim is corrected and resubmitted; there is nothing to appeal.`}</div>` : ""}${routine.map((d) => `<div class="small"><span class="chip">${esc(d.group)}-${esc(d.carc)}</span> ${money2(d.amount)} · ${esc(d.root_cause)} → ${esc(META.actions[d.action])}</div>`).join("") || (ack ? "" : '<p class="muted">None</p>')}</div>
     </div>`;
 }
 function decisionHtml(d, c) {
   const ex = d.explanation || {}; const dl = d.deadline; const pr = d.priority || {};
   const fb = (d.feedback || []).map((f) => `<div class="small">✔ ${esc(f.verdict)}${f.action ? " → " + esc(META.actions[f.action]) : ""} by ${esc(f.user)} ${f.note ? "· “" + esc(f.note) + "”" : ""}</div>`).join("");
-  const letterable = d.source !== "277CA" && ["APPEAL_REDETERMINATION", "APPEAL_LEVEL_1", "OBTAIN_RETRO_AUTH", "CORRECT_AND_RESUBMIT", "REOPENING", "MANUAL_REVIEW"].includes(d.action);
+  const letterable = d.source !== "277CA" && d.source !== "277" && ["APPEAL_REDETERMINATION", "APPEAL_LEVEL_1", "OBTAIN_RETRO_AUTH", "CORRECT_AND_RESUBMIT", "REOPENING", "MANUAL_REVIEW"].includes(d.action);
   return `<div class="card decision ${d.needs_review ? "review" : ""}">
-    <h3><span class="chip">${d.source === "277CA" ? "Whole claim · front-end rejection" : `Line ${d.line_no} · ${esc(d.code || "")}`}</span><span class="chip">${esc(codeLabel(d))}</span>${d.rarcs.map((r) => `<span class="chip">${esc(r)}</span>`).join("")} ${actionBadge(d.action)}
+    <h3><span class="chip">${d.source === "277CA" ? "Whole claim · front-end rejection" : d.source === "277" ? "Whole claim · claim status" : `Line ${d.line_no} · ${esc(d.code || "")}`}</span><span class="chip">${esc(codeLabel(d))}</span>${d.rarcs.map((r) => `<span class="chip">${esc(r)}</span>`).join("")} ${actionBadge(d.action)}
       <span class="muted small">→ ${title(d.queue)}</span> <span class="badge ${d.status === "DONE" ? "act-CORRECT_AND_RESUBMIT" : ""}" style="${d.status === "DONE" ? "" : "background:#f2f4f7;color:#1b2a3a"}">${esc(d.status)}</span></h3>
     <div class="cause"><b>${esc(d.root_cause)}.</b></div>
     <div class="narrative">${esc(ex.narrative || "")}<div class="muted small" style="margin-top:6px">Explanation by <span class="mono">${esc(ex.by || "rules")}</span>${ex.proposed_action ? " · model proposes " + actionBadge(ex.proposed_action) : ""}${ex.model_error ? " · model unavailable: " + esc(ex.model_error) : ""}</div></div>
@@ -243,12 +243,12 @@ async function inbox() {
   const keep = $("#ingest-result")?.innerHTML || "";
   const done = (f) => s.files.find((x) => x.name === f && x.status === "PROCESSED");
   const ch = (META.site && META.site.clearinghouse) || "the clearinghouse";
-  const kindOf = (f) => f.startsWith("277") ? "Claim acknowledgement (277CA)" : f.startsWith("835") ? "Remittance (835)" : "X12 file";
-  el.innerHTML = `<div class="kicker">Experian Health · file intake</div><h1>Clearinghouse inbox</h1><p class="sub">Files from ${esc(ch)}: 277CA claim acknowledgements (front-end rejections) and 835 remittances (payer denials). Each file is parsed deterministically, matched to the claim, decided, ranked and routed in seconds.</p>
+  const kindOf = (f) => f.startsWith("277CA") ? "Claim acknowledgement (277CA): front-end rejections" : f.startsWith("277") ? "Claim status (277): pending, records requested, denied before the 835" : f.startsWith("835") ? "Remittance (835): payer denials" : "X12 file";
+  el.innerHTML = `<div class="kicker">Experian Health · file intake</div><h1>Clearinghouse inbox</h1><p class="sub">Files from ${esc(ch)}: 277CA claim acknowledgements (front-end rejections), 277 claim status replies (claims still with the payer) and 835 remittances (payer denials). Each file is parsed deterministically, matched to the claim, decided, ranked and routed in seconds.</p>
     <div class="grid two">
-      <div class="card"><h2>Today's drop from ${esc(ch)}</h2><div class="muted small">Simulated secure file drop. In the pilot an Azure job collects these from ${esc(ch)} on a schedule.</div>${files.map((f) => { const d = done(f); return `<div class="actions inbox-row" style="margin:6px 0"><span class="small" style="flex:1"><span class="mono">${esc(f)}</span>${d ? ` <span class="badge act-CORRECT_AND_RESUBMIT">Ingested ✓</span>` : ""}<br><span class="muted">${kindOf(f)}</span></span><a class="small" href="/api/demo-files/${encodeURIComponent(f)}" target="_blank">view raw</a><button class="${d ? "secondary" : ""}" data-file="${esc(f)}" onclick="ingestDemo(this)">${d ? "Ingest again" : "Ingest"}</button></div>`; }).join("") || '<p class="muted">None</p>'}
+      <div class="card"><h2>Today's drop from ${esc(ch)}</h2><div class="muted small">Simulated secure file drop. In production, an Azure job collects these from ${esc(ch)} on a schedule.</div>${files.map((f) => { const d = done(f); return `<div class="actions inbox-row" style="margin:6px 0"><span class="small" style="flex:1"><span class="mono">${esc(f)}</span>${d ? ` <span class="badge act-CORRECT_AND_RESUBMIT">Ingested ✓</span>` : ""}<br><span class="muted">${kindOf(f)}</span></span><a class="small" href="/api/demo-files/${encodeURIComponent(f)}" target="_blank">view raw</a><button class="${d ? "secondary" : ""}" data-file="${esc(f)}" onclick="ingestDemo(this)">${d ? "Ingest again" : "Ingest"}</button></div>`; }).join("") || '<p class="muted">None</p>'}
         <div id="ingest-result" class="result">${keep}</div>
-        <div class="small muted" style="margin-top:10px">Ingest each file once, 277CA first. A file takes about 5–15 seconds while the AI writes an explanation for every item.</div></div>
+        <div class="small muted" style="margin-top:10px">Ingest each file once, in order: 277CA, then 277 claim status, then the 835s. A file takes about 5–15 seconds while the AI writes an explanation for every item.</div></div>
       <div class="card"><h2>Upload a file</h2><label class="drop" id="drop"><input type="file" id="file" hidden accept=".txt,.835,.837,.edi,.x12">Drag &amp; drop an X12 file here, or click to choose</label>
         <h2 style="margin-top:18px">Reset the demo</h2><p class="small muted">Reloads the starting data and clears alerts, approvals and overrides.</p><button class="secondary" id="reset-btn" onclick="resetDemo(this)">Reset demo data</button></div>
     </div>
@@ -289,11 +289,12 @@ function showResult(r) {
   const el = $("#ingest-result");
   if (r.status !== "PROCESSED") { el.innerHTML = `<div class="alert-card"><b>Quarantined:</b> ${esc(r.error)}</div>`; toast("File quarantined - see the reason in the inbox"); return; }
   const counts = r.kind === "277CA" ? `${r.claims} claims acknowledged: ${r.accepted} accepted, ${r.rejected} rejected → ${r.denials} work items, ${r.alerts} Teams alerts`
+    : r.kind === "277" ? `${r.claims} claim statuses: ${r.in_process} in process, ${r.paid} paid, ${r.needs_action} need action now → ${r.denials} work items, ${r.alerts} Teams alerts`
     : `${r.claims} claims${r.denials !== undefined ? `, ${r.denials} denials decided, ${r.alerts} Teams alerts` : ""}`;
   el.innerHTML = `<div class="alert-card warn" style="border-left-color:var(--win)"><b>✓ ${esc(r.kind)} processed${r.payer ? " · " + esc(r.payer) : ""}</b> - ${counts}${r.unmatched?.length ? `, ${r.unmatched.length} unmatched` : ""}
     ${(r.new_items || []).map((i) => `<div class="small"><a href="#claim/${esc(i.claim_id)}">${esc(i.claim_id)}</a> → ${esc(META.actions[i.action])} · ${money2(i.amount)}</div>`).join("")}
     ${r.alerts ? `<div class="small" style="margin-top:6px"><a href="#dashboard">See the Teams alerts on the Dashboard →</a></div>` : ""}</div>`;
-  toast(r.kind === "277CA" ? `Done: ${r.rejected} rejections routed, ${r.alerts} Teams alerts` : r.denials !== undefined ? `Done: ${r.denials} denials decided, ${r.alerts} Teams alerts` : `Done: ${r.claims} claims loaded`);
+  toast(r.kind === "277CA" ? `Done: ${r.rejected} rejections routed, ${r.alerts} Teams alerts` : r.kind === "277" ? `Done: ${r.needs_action} claim statuses need action, ${r.alerts} Teams alerts` : r.denials !== undefined ? `Done: ${r.denials} denials decided, ${r.alerts} Teams alerts` : `Done: ${r.claims} claims loaded`);
 }
 
 /* ------------------------------------------------------------ proof */
@@ -381,7 +382,7 @@ async function reporting() {
   const secs = ta.file_to_worklist_seconds === null ? "—" : ta.file_to_worklist_seconds < 1 ? "< 1 s" : ta.file_to_worklist_seconds.toFixed(0) + " s";
   const mins = ta.median_minutes_to_decision === null ? "—" : ta.median_minutes_to_decision < 1 ? "< 1 min" : ta.median_minutes_to_decision.toFixed(0) + " min";
   el.innerHTML = `<div class="kicker">Power BI preview</div><h1>Reporting</h1>
-    <p class="sub">What the hospital's Power BI report shows: denial trends, turnaround, recovery and the value side of ROI. Computed live from the same tables as the worklist. In the pilot, Power BI reads them from Azure SQL.</p>
+    <p class="sub">What the hospital's Power BI report shows: denial trends, turnaround, recovery and the value side of ROI. Computed live from the same tables as the worklist. In production, Power BI reads them from Azure SQL.</p>
     <div class="grid kpis">
       <div class="card kpi"><div class="label">Denial rate · ${t.length} months</div><div class="value">${pctTxt(adj ? den / adj : null)}</div><div class="muted small">${den.toLocaleString()} of ${adj.toLocaleString()} adjudicated claims</div></div>
       <div class="card kpi loss"><div class="label">Open denied dollars</div><div class="value">${kmoney(rc.denied_open)}</div><div class="muted small">${ta.open_items} open items</div></div>
@@ -411,7 +412,7 @@ async function reporting() {
         <div class="kv"><div>Approved for rework by billers</div><div><b>${rc.approved_items}</b> items · ${money(rc.approved_amount)}</div></div>
         <div class="kv"><div>Confirmed recovered</div><div><span class="muted">Pilot: matched from the follow-up 835 once the corrected claim or appeal is paid (typically 30–60+ days)</span></div></div></div>
       <div class="card"><h2>Value side of ROI</h2>
-        <p class="muted small" style="margin-top:0">What denials cost a hospital this size each year, and what comes back. ROI is this value divided by the agreed cost of the engagement, which sits in the proposal. The pilot replaces these benchmarks with measured figures.</p>
+        <p class="muted small" style="margin-top:0">What denials cost a hospital this size each year, and what comes back. ROI is this value divided by the agreed cost of the engagement, which sits in the proposal. The engagement replaces these assumptions with measured figures.</p>
         <div class="roi-in">
           <label class="field">Net patient revenue ($M a year)<input type="number" id="r-npr" value="25" min="0" step="1"></label>
           <label class="field">Denial write-offs (% of net revenue)<input type="number" id="r-wo" value="2" min="0" step="0.1"></label>
@@ -421,7 +422,7 @@ async function reporting() {
           <label class="field">Write-offs recovered, low–high (%)<span class="pair"><input type="number" id="r-lo" value="15" min="0" max="100" step="1"><input type="number" id="r-hi" value="25" min="0" max="100" step="1"></span></label>
         </div>
         <div id="r-out"></div>
-        <div class="muted small">Defaults: a 25-bed critical access hospital. Benchmarks: HFMA (denial write-offs ≈2% of net patient revenue); Premier 2024 ($57.23 to work a denial).</div></div>
+        <div class="muted small">Defaults: a 25-bed critical access hospital. Assumptions: denial write-offs of about 2% of net patient revenue (measured as HFMA MAP Key AR-6); $57.23 to work a denied claim (Premier, 2025).</div></div>
       <div class="card"><h2>Power BI dataset</h2>
         <p class="small" style="margin-top:0">One row per denial or rejection: payer, codes, root cause, amount, action, queue, deadline, urgency, ML priority, expected recovery and the biller's decision. Power BI builds the trend, turnaround, recovery and ROI pages from it.</p>
         <div class="actions"><a href="/api/report/denials.csv" download><button>Download dataset (CSV)</button></a></div>

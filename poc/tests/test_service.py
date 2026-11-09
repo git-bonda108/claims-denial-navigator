@@ -108,3 +108,19 @@ def test_report_carries_trend_turnaround_recovery_and_csv(svc):
     assert rows[0].split(",")[:3] == ["claim_id", "line_no", "source"]
     assert len(rows) - 1 == len(svc.store.decisions(workable_only=True))
     assert any(",277CA," in row for row in rows[1:])
+
+
+def test_277_claim_status_turns_pended_and_denied_claims_into_work_before_the_835(svc):
+    teams.OUTBOX.clear()
+    f = next((svc.data_dir / "demo_inbox").glob("277_STATUS_*.txt"))
+    r = svc.ingest(f.name, f.read_text())
+    assert r["kind"] == "277" and r["status"] == "PROCESSED" and not r["unmatched"]
+    assert (r["claims"], r["in_process"], r["paid"], r["needs_action"], r["denials"]) == (6, 3, 1, 2, 2)
+    ds = {d["carc"]: d for i in r["new_items"] for d in svc.store.decisions(i["claim_id"])}
+    rec, elig = ds["P3:294"], ds["F2:88:IL"]
+    assert (rec["action"], rec["queue"], rec["deadline"]["type"]) == ("SEND_RECORDS", "BILLING", "RECORDS_REQUEST")
+    assert (elig["action"], elig["queue"]) == ("BILL_OTHER_PAYER", "REGISTRATION") and elig["amount"] == 2840.0
+    assert all("adjusted" not in d["explanation"]["narrative"] for d in ds.values())
+    assert "error" in svc.letter(rec["id"]) and len(teams.OUTBOX) == 1  # the $2,840 CT
+    acc = svc.evaluate()["accuracy"]
+    assert acc["scenario:T01"] == acc["scenario:T02"] == 1.0
